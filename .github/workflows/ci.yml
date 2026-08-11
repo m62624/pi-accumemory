@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  # Push CI runs on ANY branch (post-push validation) — there is no privileged
+  # target branch here. `branches: ['**']` matches every branch but NOT tags, so
+  # pushing the `pin/v*` release tag does not trigger this workflow (only the
+  # Release workflow reacts to the tag). rc/v* release branches run through
+  # workflow_call. A branch that also has an open PR is built twice (push + PR);
+  # CI is cached and cheap, so that trade is accepted in exchange for validating
+  # direct pushes on any branch.
+  push:
+    branches: ["**"]
+    paths:
+      - ".github/workflows/**"
+      - "src/**"
+      - "tests/**"
+      - "package-lock.json"
+      - "package.json"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - "biome.json"
+      - "!**.md"
+  # No paths filter on PRs on purpose: the branch-protection gate (`ci-pass`
+  # below) is a *required* check, so it must ALWAYS report. With a paths filter a
+  # docs-only PR would never start the workflow and the required check would hang
+  # forever ("Expected — waiting for status"). CI is cached and cheap, so we just
+  # let it run on every PR.
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to checkout"
+        required: false
+        type: string
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, lint & test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Biome runs with --error-on-warnings (see the `check` script), so a
+      # formatting drift or a lint warning FAILS the build rather than printing
+      # a note nobody reads. It runs first because it is the fastest of the
+      # four and the most common thing to get wrong.
+      - name: Check Formatting And Lint
+        run: npm run check
+
+      - name: Typecheck
+        run: npm run build
+
+      # Coverage rather than a plain test run: vitest.config.ts sets a 90%
+      # threshold on statements, branches, functions and lines, and a threshold
+      # that only the author ever checks is not a threshold. This also runs the
+      # tests, so there is no separate `npm test` step.
+      #
+      # The tests needing a live embedding service skip themselves when none
+      # answers, so no runner needs Ollama.
+      - name: Run Tests With Coverage
+        run: npm run coverage
+
+      - name: Check NPM Package Contents
+        run: npm pack --dry-run
+
+      # Coverage artefacts are derived files and are gitignored. If this step
+      # finds anything, the ignore list has a hole and a report is one commit
+      # away from entering the history.
+      - name: Working Tree Must Be Clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "The build left files behind — .gitignore is incomplete:"
+            git status --porcelain
+            exit 1
+          fi
+
+  # --- single branch-protection gate -----------------------------------------
+  # Make ONLY this check "required" on the protected branch. It aggregates every
+  # real job above, so branch protection never needs editing when jobs are
+  # added/removed, and it reports for every PR (no paths filter) — including the
+  # release sync PR, which reuses this same workflow. `if: always()` lets it run
+  # even when a dependency failed, so it can turn that into a red required check.
+  ci-pass:
+    name: CI passed
+    if: always()
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any required job did not succeed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "A required CI job failed or was cancelled:"
+          echo "  build = ${{ needs.build.result }}"
+          exit 1
+      - name: All required jobs passed
+        run: echo "CI is green."
