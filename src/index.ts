@@ -24,6 +24,14 @@ import { createIdleTrigger } from "./session/idle-trigger.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
 import { longtermTools } from "./tools/definitions.ts";
+import {
+	type ProgressStep,
+	reembedProgressLines,
+	reembedSummary,
+} from "./ui/reembed-progress.ts";
+
+/** Widget slot for the rebuild panel; the same key replaces, never stacks. */
+const REEMBED_WIDGET = "longterm-reembed";
 
 export default function accumemory(pi: ExtensionAPI): void {
 	let session: StartedSession | undefined;
@@ -220,21 +228,50 @@ export default function accumemory(pi: ExtensionAPI): void {
 			// half the memory answering in one vector space and half in another,
 			// and nothing reports that.
 			idle.interrupt();
-			ctx.ui.notify(
-				"Re-embedding every memory; this can take a while.",
-				"info",
-			);
+
+			// A visible, moving panel above the editor rather than one word in
+			// the footer. This is the only operation here that takes real time,
+			// and a person watching it has to be able to tell it apart from a
+			// hang. The editor stays usable on purpose: there is no API to lock
+			// it, and taking the keyboard away during a background rebuild is
+			// worse than showing what is going on.
+			let steps: readonly ProgressStep[] = [];
+			let tick = 0;
+			const draw = () => {
+				if (steps.length === 0) return;
+				try {
+					ctx.ui.setWidget(REEMBED_WIDGET, reembedProgressLines(steps, tick));
+				} catch {
+					// Cosmetic: a stale UI handle must not fail the rebuild.
+				}
+			};
+			const animation = setInterval(() => {
+				tick += 1;
+				draw();
+			}, 120);
+			ctx.ui.setStatus("longterm", "rebuilding vectors");
+
 			try {
+				const result = await session.reembed((progress) => {
+					steps = progress;
+					draw();
+				});
 				ctx.ui.notify(
-					await session.reembed((name) =>
-						ctx.ui.setStatus("longterm", `re-embedding ${name}`),
-					),
-					"info",
+					result.blocked ?? reembedSummary(result.steps),
+					result.steps.some((step) => step.state === "skipped")
+						? "warning"
+						: "info",
 				);
 			} catch (error) {
 				ctx.ui.notify(`Re-embedding failed: ${describe(error)}`, "error");
 			} finally {
+				clearInterval(animation);
 				ctx.ui.setStatus("longterm", undefined);
+				try {
+					ctx.ui.setWidget(REEMBED_WIDGET, undefined);
+				} catch {
+					// Same reason as above.
+				}
 			}
 		},
 	});

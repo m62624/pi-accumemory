@@ -159,7 +159,8 @@ describe("vector repair", () => {
 		const session = await start(settingsWith(() => {}));
 		await session.controller.remember({ text: "vitest runs the tests here" });
 		const before = embedder.embedded();
-		expect(await session.reembed()).toMatch(/Re-embedded 2 of 2/);
+		const { steps } = await session.reembed();
+		expect(steps.map((step) => step.state)).toEqual(["done", "done"]);
 		expect(embedder.embedded()).toBeGreaterThan(before);
 	});
 });

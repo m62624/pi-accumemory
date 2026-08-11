@@ -19,6 +19,7 @@ import {
 } from "../../src/settings/defaults.ts";
 import { type StartedSession, startSession } from "../../src/startup.ts";
 import { PlugmemStore } from "../../src/storage/plugmem-store.ts";
+import { reembedSummary } from "../../src/ui/reembed-progress.ts";
 import {
 	type StubEmbedder,
 	startStubEmbedder,
@@ -232,7 +233,9 @@ describe("startSession", () => {
 		// Better than the engine's own error, which arrives after the command
 		// has already told the user it started.
 		const session = await start(project);
-		expect(await session.reembed()).toMatch(/no embedder configured/i);
+		const result = await session.reembed();
+		expect(result.blocked).toMatch(/no embedder configured/i);
+		expect(result.steps).toEqual([]);
 	});
 
 	it("refuses an embedder that plugmem would refuse, before opening anything", async () => {
@@ -294,11 +297,26 @@ describe("startSession", () => {
 		// No embedder needs to answer for this: with nothing stored there is
 		// nothing to send, and the lock is taken before any of that.
 		const session = await start(project, await embedding());
-		const seen: string[] = [];
-		const summary = await session.reembed((name) => seen.push(name));
-		expect(summary).toMatch(/Re-embedded 2 of 2/);
-		expect(summary).not.toMatch(/skipped/i);
-		expect(seen).toHaveLength(2);
+		let updates = 0;
+		const { steps } = await session.reembed(() => {
+			updates += 1;
+		});
+		expect(steps.map((step) => step.state)).toEqual(["done", "done"]);
+		// A person watching needs to see it move, so every database reports
+		// twice: once when it starts and once when it ends.
+		expect(updates).toBe(4);
+		expect(reembedSummary(steps)).toBe("Rebuilt 2 of 2 memories.");
+	});
+
+	it("names the databases the way a person names them", async () => {
+		// `p_dd21d9ddb1fa` identifies a file to the engine and nothing to the
+		// person reading which memory was skipped.
+		const session = await start(project, await embedding());
+		const { steps } = await session.reembed();
+		expect(steps.map((step) => step.label)).toEqual([
+			"shared memory about you",
+			"app",
+		]);
 	});
 
 	it("rebuilds the rest when one database is held by somebody else", async () => {
@@ -307,12 +325,18 @@ describe("startSession", () => {
 		const other = path.join(root, "other");
 		await mkdir(path.join(other, ".git"), { recursive: true });
 
-		const held = await start(other, await embedding());
+		await start(other, await embedding());
 		const session = await start(project, await embedding());
-		const summary = await session.reembed();
-		expect(summary).toMatch(/Re-embedded 2 of 3/);
-		expect(summary).toMatch(new RegExp(`Skipped .*${held.projectId}`));
-		expect(summary).toMatch(/another session is holding/i);
+		const { steps } = await session.reembed();
+		expect(steps.filter((step) => step.state === "done")).toHaveLength(2);
+
+		const summary = reembedSummary(steps);
+		// Named by its folder, and told what to do about it. A skipped database
+		// is the one thing here nothing else will ever mention again.
+		expect(summary).toContain("Rebuilt 2 of 3");
+		expect(summary).toContain("other");
+		expect(summary).toMatch(/another pi session has it open/i);
+		expect(summary).toContain("/longterm-reembed");
 	});
 
 	it("stores a repeated fact once, even when nothing named an entity", async () => {

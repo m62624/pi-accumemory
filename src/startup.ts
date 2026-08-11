@@ -47,6 +47,7 @@ import {
 	PlugmemStore,
 } from "./storage/plugmem-store.ts";
 import { longtermTools } from "./tools/definitions.ts";
+import type { ProgressStep } from "./ui/reembed-progress.ts";
 
 /**
  * The `node:path` surface startup needs.
@@ -85,8 +86,17 @@ export interface StartedSession {
 	consolidation?: ConsolidationRunner;
 	/** `0` when consolidation is off, which is what disables the idle timer. */
 	consolidationQuietMs: number;
-	/** Rebuilds every vector in the workspace after an embedder change. */
-	reembed(onProgress?: (name: string) => void): Promise<string>;
+	/**
+	 * Rebuilds every vector in the workspace after an embedder change.
+	 *
+	 * `onProgress` is called with the same array each time a database starts
+	 * and finishes, so a caller can render it; the result carries the final
+	 * states, or `blocked` when the rebuild could not even begin.
+	 */
+	reembed(onProgress?: (steps: readonly ProgressStep[]) => void): Promise<{
+		steps: ProgressStep[];
+		blocked?: string;
+	}>;
 	/** Everything worth telling the user once, in plain sentences. */
 	notices: string[];
 	close(): void;
@@ -322,14 +332,29 @@ export async function startSession(
 			// so beats the engine's own error, which arrives after the command
 			// has already announced that it started.
 			if (!settings.memory.embedder.enabled) {
-				return (
-					"There is no embedder configured, so there are no vectors to rebuild. " +
-					"See SETTINGS.md to switch one on, then run this again."
-				);
+				return {
+					steps: [],
+					blocked:
+						"There is no embedder configured, so there are no vectors to rebuild. " +
+						"See SETTINGS.md to switch one on, then run this again.",
+				};
 			}
 			// Every database in the workspace, because a partial reembed leaves
 			// half the memory answering in one vector space and half in another.
 			const names = [COMMON_DB, ...(await listDbNames(fs, pathModule, layout))];
+			// File names are not names. `p_dd21d9ddb1fa` identifies a database
+			// to the engine and nothing at all to the person watching a rebuild
+			// or reading which one was skipped.
+			const known = await router.list();
+			const labelOf = (name: string): string => {
+				if (name === COMMON_DB) return "shared memory about you";
+				const id = name.slice("p_".length);
+				return known.find((project) => project.projectId === id)?.name ?? name;
+			};
+			const steps: ProgressStep[] = names.map((name) => ({
+				label: labelOf(name),
+				state: "waiting",
+			}));
 			// This session already holds the writer for its own project, and a
 			// second writer on the same file is refused by the engine - it would
 			// report the session as "locked by another process" when the other
@@ -337,10 +362,11 @@ export async function startSession(
 			// handle we have rather than through a new one.
 			const ownName =
 				projectId === undefined ? undefined : projectDbName(projectId);
-			const done: string[] = [];
-			const skipped: string[] = [];
-			for (const name of names) {
-				onProgress?.(name);
+			for (const [index, name] of names.entries()) {
+				const step = steps[index];
+				if (step === undefined) continue;
+				step.state = "running";
+				onProgress?.(steps);
 				try {
 					if (name === COMMON_DB) {
 						// Through the lease, not a bare writer: the lease publishes
@@ -362,7 +388,7 @@ export async function startSession(
 							writer.close();
 						}
 					}
-					done.push(name);
+					step.state = "done";
 				} catch (error) {
 					// One database held by another session must not cost the user
 					// the rebuild of all the others; it must also not pass in
@@ -371,15 +397,11 @@ export async function startSession(
 					if (!isLocked(error) && !(error instanceof CommonMemoryBusyError)) {
 						throw error;
 					}
-					skipped.push(name);
+					step.state = "skipped";
 				}
+				onProgress?.(steps);
 			}
-			const summary = `Re-embedded ${done.length} of ${names.length} memories.`;
-			return skipped.length === 0
-				? summary
-				: `${summary} Skipped ${skipped.join(", ")}: another session is holding ` +
-						"them open. Close it and run this again, or the skipped memories keep " +
-						"their old vectors.";
+			return { steps };
 		},
 		...(projectId === undefined ? {} : { projectId }),
 		...(projectRoot === undefined ? {} : { projectRoot }),
