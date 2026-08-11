@@ -61,7 +61,12 @@ day it does not.
 			"maxSteps": 12,
 			"maxNudges": 2,
 			"maxTranscriptChars": 20000,
-			"promoteToCommon": true
+			"promoteToCommon": true,
+			"review": {
+				"enabled": true,
+				"sampleSize": 12
+			},
+			"maintain": true
 		},
 		"crossProject": {
 			"enabled": true
@@ -153,6 +158,46 @@ is already saved.
 | `consolidation.maxNudges` | `2` | how many times a pass that produced no action is nudged before being abandoned |
 | `consolidation.maxTranscriptChars` | `20000` | how much transcript one pass reads. A cursor records how far it got, so a long session is digested by several small passes |
 | `consolidation.promoteToCommon` | `true` | lets the pass move a fact confirmed in several projects into the shared memory |
+| `consolidation.review.enabled` | `true` | the pass's **second phase**: re-reading the oldest stored facts. See below |
+| `consolidation.review.sampleSize` | `12` | how many old facts one pass looks at, per memory |
+| `consolidation.maintain` | `true` | reclaim the disk of forgotten facts at the end of a pass |
+
+## The second phase — `consolidation.review.*`
+
+The first phase reads the transcript, so it only ever weighs what was just
+discussed. That leaves a gap nothing else covers: a fact learned six months ago
+and never mentioned since is never reconsidered — not because it is still true,
+but because nothing puts it in front of anybody.
+
+So a pass has a second phase. It shows the model a window of the **oldest**
+stored facts and asks one question of each: does this still earn its place. The
+window walks forward every pass and wraps at the end, so the whole memory is
+covered over time and nothing is shown twice in a row.
+
+It runs even when the transcript has nothing new — an idle machine is exactly
+when there is time for it — and it is a second agent run with its own step
+budget, so the transcript phase cannot eat the budget before it starts.
+
+Nothing here deletes on a rule. The model decides; a fact is dropped only when
+its date has passed, it duplicates another, or it is contradicted. "Old" is not
+a reason, and the instruction says so.
+
+## Reclaiming disk — `consolidation.maintain`
+
+`longterm_forget` sets a tombstone: the fact leaves recall at once, and its
+bytes leave at the next maintenance pass. Nothing schedules one — plugmem's own
+trigger is off by default — so without this a memory only ever grows. Measured
+on the engine at `dim: 768`:
+
+| | snapshot |
+|---|---|
+| 1000 facts | 1278 KB |
+| 1000 facts, 500 forgotten, no maintenance | 1278 KB |
+| the same, after maintenance | **674 KB** |
+
+A revision is not reclaimable by any setting: `longterm_revise` closes the old
+version and keeps it, because that is what answers "what was true then". Roughly
+1 KB per fact, so a memory of ten thousand facts is about 13 MB.
 
 ## Cross-project questions — `memory.crossProject.enabled`
 

@@ -113,6 +113,7 @@ export class PlugmemStore implements WritableMemory {
 			entities: stats.entities,
 			edges: stats.edges,
 			vectors: stats.vectors,
+			tombstones: stats.tombstones,
 		};
 	}
 
@@ -197,6 +198,7 @@ export class PlugmemReader implements ReadableMemory {
 			entities: stats.entities,
 			edges: stats.edges,
 			vectors: stats.vectors,
+			tombstones: stats.tombstones,
 		};
 	}
 

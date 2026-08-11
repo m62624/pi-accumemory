@@ -131,6 +131,27 @@ export interface MemoryStats {
 	 * of what is stored and says nothing about it.
 	 */
 	vectors: number;
+	/**
+	 * Records that are forgotten but not yet physically purged.
+	 *
+	 * `forget` sets a tombstone: the fact leaves recall at once, and its bytes
+	 * leave at the next `maintain`. Until then it is still counted by `facts`,
+	 * which is why anything reporting a size to a person or to the model has to
+	 * subtract these - otherwise a memory that has just been tidied claims to
+	 * hold more than it did before.
+	 */
+	tombstones: number;
+}
+
+/**
+ * Live facts: what a recall can actually return.
+ *
+ * Clamped at zero rather than trusted. The two numbers come from the engine
+ * separately, and a report that reads "-3 facts" because they disagreed for a
+ * moment is worse than one that reads "0".
+ */
+export function liveFacts(stats: MemoryStats): number {
+	return Math.max(0, stats.facts - stats.tombstones);
 }
 
 export interface EdgeRef {
@@ -191,4 +212,17 @@ export interface WritableMemory extends ReadableMemory {
 	 * checkpointed is a write the rest of the machine cannot see.
 	 */
 	checkpoint(): Promise<void>;
+	/**
+	 * Physically reclaims the bytes of everything forgotten.
+	 *
+	 * `forget` only sets a tombstone: the fact leaves recall at once and its
+	 * record, vector slot and postings stay until a maintenance pass. Nothing
+	 * schedules one - plugmem's own trigger is off by default - so a memory that
+	 * is never maintained only grows. Measured: a thousand facts with five
+	 * hundred forgotten stayed at 1278 KB until compaction took it to 674 KB.
+	 *
+	 * Not cheap (it is O(database)), which is why the idle pass is where it is
+	 * called from rather than every write.
+	 */
+	maintain(): Promise<void>;
 }

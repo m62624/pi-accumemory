@@ -38,6 +38,8 @@ export interface ExtensionLayout {
 	stateDir: string;
 	/** How far the consolidation pass has read each project's transcript. */
 	consolidationStateFile: string;
+	/** How far the review phase has walked each memory. */
+	reviewStateFile: string;
 	settingsFile: string;
 }
 
@@ -66,6 +68,7 @@ export function extensionLayout(
 		instructionsAppendDir: join(instructionsDir, "append"),
 		stateDir,
 		consolidationStateFile: join(stateDir, "consolidation.json"),
+		reviewStateFile: join(stateDir, "review.json"),
 		settingsFile: join(root, "settings.json"),
 	};
 }

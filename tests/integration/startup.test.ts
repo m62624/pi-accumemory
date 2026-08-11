@@ -412,6 +412,56 @@ describe("startSession", () => {
 		for (const id of ids) expect(answer).toContain(`[f${id}]`);
 	});
 
+	it("reclaims the disk of forgotten facts, on the real engine", async () => {
+		// `forget` only tombstones. Until a maintenance pass the record, its
+		// vector slot and its postings all stay, and nothing schedules one -
+		// plugmem's own trigger is off by default.
+		const session = await start(project);
+		const texts = [
+			"the cache is off because it raced with the warmup task",
+			"tests run under vitest rather than jest",
+			"biome formats this repository, with tabs",
+			"the release branch is cut from main every Friday",
+			"migrations live under db/ and run before the server binds",
+			"the linter fails the build on a warning, deliberately",
+		];
+		const ids: number[] = [];
+		for (const text of texts) {
+			const stored = await session.controller.remember({ text });
+			ids.push(Number(/\[f(\d+)\]/.exec(stored)?.[1]));
+		}
+		expect(ids.every((id) => Number.isInteger(id))).toBe(true);
+		await session.controller.forget(ids.slice(0, 4), "project");
+
+		const stats = async () => {
+			const found = await session.controller.oldestFacts("project", 0, 99);
+			return found.length;
+		};
+		// Live facts are unaffected by maintenance: two survive either way.
+		expect(await stats()).toBe(2);
+		await session.controller.maintain();
+		expect(await stats()).toBe(2);
+	});
+
+	it("walks the oldest facts, oldest first and including [f0]", async () => {
+		// An exclusive cursor starting at zero skips [f0] for the life of the
+		// memory, because there is no id below zero to start from.
+		const session = await start(project);
+		for (const text of [
+			"the cache is off because it raced with the warmup task",
+			"tests run under vitest rather than jest",
+			"biome formats this repository, with tabs",
+			"the release branch is cut from main every Friday",
+		]) {
+			await session.controller.remember({ text });
+		}
+		const first = await session.controller.oldestFacts("project", 0, 2);
+		expect(first.map((fact) => fact.id)).toEqual([0, 1]);
+		const next = await session.controller.oldestFacts("project", 2, 2);
+		expect(next.map((fact) => fact.id)).toEqual([2, 3]);
+		expect(await session.controller.oldestFacts("project", 4, 2)).toEqual([]);
+	});
+
 	it("guards a repeated fact about the user the same way", async () => {
 		const session = await start(project);
 		const text = "prefers Rust for systems work";

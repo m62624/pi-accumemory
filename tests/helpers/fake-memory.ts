@@ -49,6 +49,8 @@ export class FakeMemory implements WritableMemory {
 	checkpoints = 0;
 	/** Set to make the next write reject, standing in for PLUGMEM_LOCKED. */
 	failNextWrite: Error | undefined;
+	/** How many maintenance passes ran; nothing else reclaims space. */
+	maintains = 0;
 	/** Vector slots reported by `stats()`; set it to model a partial embedding. */
 	vectors = 0;
 	/** Set to make every recall reject, standing in for a vector space mismatch. */
@@ -268,22 +270,41 @@ export class FakeMemory implements WritableMemory {
 			: { items: page };
 	}
 
+	/**
+	 * Mirrors the engine, including the part that surprises people: `facts`
+	 * counts stored RECORDS, so a closed revision and a fact forgotten but not
+	 * yet purged are both still in it. `tombstones` is how a caller subtracts
+	 * the second kind - see `liveFacts` in the port. A fake that reported live
+	 * facts here would make every caller look correct while production
+	 * over-reported.
+	 */
 	async stats(): Promise<MemoryStats> {
 		const entities = new Set(
 			this.live()
 				.map((fact) => fact.entity)
 				.filter((name): name is string => name !== undefined),
 		);
+		const tombstoned = this.facts.filter((fact) => fact.tombstoned);
 		return {
-			facts: this.live().length,
+			facts: this.live().length + tombstoned.length,
 			entities: entities.size,
 			edges: this.edges.length,
 			vectors: this.vectors,
+			tombstones: tombstoned.length,
 		};
 	}
 
 	async checkpoint(): Promise<void> {
 		this.checkpoints += 1;
+	}
+
+	/** Purges tombstones, exactly as a real maintenance pass does. */
+	async maintain(): Promise<void> {
+		this.throwIfArmed();
+		this.maintains += 1;
+		for (let i = this.facts.length - 1; i >= 0; i -= 1) {
+			if (this.facts[i]?.tombstoned === true) this.facts.splice(i, 1);
+		}
 	}
 
 	/** Live facts: neither closed by a revision nor forgotten. */

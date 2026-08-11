@@ -52,6 +52,7 @@ function store(options: {
 			entities: 0,
 			edges: 0,
 			vectors: options.vectors ?? 0,
+			tombstones: 0,
 		}),
 		reembed: async () => {
 			reembeds += 1;

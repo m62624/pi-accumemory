@@ -6,6 +6,7 @@ import {
 	memoryManifest,
 } from "../../src/memory/block.ts";
 import type { Turn } from "../../src/memory/transcript-view.ts";
+import { liveFacts } from "../../src/storage/port.ts";
 
 const rendered = [
 	"- [f1] cache disabled: warmup race",
@@ -162,5 +163,35 @@ describe("consolidationBlock", () => {
 
 	it("states plainly that the memory is empty", () => {
 		expect(consolidationBlock("")).toMatch(/empty/i);
+	});
+});
+
+describe("liveFacts", () => {
+	it("subtracts what is forgotten but not yet purged", () => {
+		// `facts` counts stored records, so a memory that was just tidied would
+		// otherwise claim to hold more than it did before it was tidied.
+		expect(
+			liveFacts({
+				facts: 47,
+				entities: 3,
+				edges: 0,
+				vectors: 47,
+				tombstones: 5,
+			}),
+		).toBe(42);
+	});
+
+	it("never goes below zero", () => {
+		// The two numbers come from the engine separately. A report reading
+		// "-3 facts" because they disagreed for a moment is worse than "0".
+		expect(
+			liveFacts({
+				facts: 2,
+				entities: 0,
+				edges: 0,
+				vectors: 0,
+				tombstones: 9,
+			}),
+		).toBe(0);
 	});
 });

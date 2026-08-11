@@ -19,6 +19,7 @@ function harness(options: { lockUntilAttempt?: number } = {}) {
 	let seen = 0;
 	let opens = 0;
 	let closes = 0;
+	let maintained = 0;
 
 	const reader: Reader = {
 		recall: async (input) => {
@@ -66,6 +67,9 @@ function harness(options: { lockUntilAttempt?: number } = {}) {
 			checkpoint: async () => {
 				published += 1;
 			},
+			maintain: async () => {
+				maintained += 1;
+			},
 			close: () => {
 				closes += 1;
 			},
@@ -76,7 +80,7 @@ function harness(options: { lockUntilAttempt?: number } = {}) {
 		backing,
 		reader,
 		openWriter,
-		counts: () => ({ opens, closes, published, seen }),
+		counts: () => ({ opens, closes, published, seen, maintained }),
 		store: (extra = {}) =>
 			new CommonStore(reader, openWriter, { sleep: async () => {}, ...extra }),
 	};

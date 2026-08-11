@@ -146,6 +146,18 @@ export class CommonStore implements WritableMemory {
 		}
 	}
 
+	/**
+	 * Reclaims forgotten bytes under one lease.
+	 *
+	 * A lease and not a bare writer, for the same reason every other write takes
+	 * one: another session may be holding it, and the lease already knows how to
+	 * wait and how to give up. The lease publishes on the way out, which is what
+	 * makes the smaller file visible to everyone else.
+	 */
+	async maintain(): Promise<void> {
+		await this.withWriteLease((writer) => writer.maintain());
+	}
+
 	async remember(input: RememberInput): Promise<RememberResult> {
 		return this.withWriteLease((writer) => writer.remember(input));
 	}

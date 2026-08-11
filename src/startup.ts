@@ -14,6 +14,7 @@
 
 import { CursorStore } from "./consolidation/cursor-store.ts";
 import { piPassAgent } from "./consolidation/pi-agent.ts";
+import { ReviewCursorStore } from "./consolidation/review-cursor.ts";
 import { ConsolidationRunner } from "./consolidation/runner.ts";
 import { readTranscriptTail } from "./consolidation/transcript.ts";
 import type { FileOps } from "./fs-ops.ts";
@@ -324,6 +325,11 @@ export async function startSession(
 		layout.consolidationStateFile,
 		pathModule,
 	);
+	const reviewCursor = new ReviewCursorStore(
+		fs,
+		layout.reviewStateFile,
+		pathModule,
+	);
 	// A pass runs outside a project too, and the reasoning that used to stop it
 	// was simply wrong: pi keys the transcript directory by WORKING DIRECTORY,
 	// not by project, so there is always something to resume from. What a
@@ -351,6 +357,13 @@ export async function startSession(
 				// that is exactly what pi files the transcript under.
 				cursorKey: projectId ?? cwd,
 				label,
+				reviewCursor,
+				scopeLabel: (scope) =>
+					scope === "user"
+						? "your memory about the user"
+						: projectRoot === undefined
+							? "this directory"
+							: `this project (${basename(projectRoot)})`,
 				clock: () => clockLine(new Date(), settings.timezone),
 				readTail: (cursor) =>
 					readTranscriptTail(fs, {

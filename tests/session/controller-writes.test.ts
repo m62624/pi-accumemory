@@ -403,3 +403,37 @@ describe("a write addressed at both memories", () => {
 		);
 	});
 });
+
+describe("the manifest's numbers", () => {
+	it("counts live facts, not stored records", async () => {
+		// A memory that was just tidied must not claim to hold more than it did
+		// before: `stats().facts` includes anything forgotten since the last
+		// maintenance, and the manifest is the model's only sense of scale.
+		const { controller, project } = build();
+		for (const text of ["fact one", "fact two", "fact three"]) {
+			await controller.remember({ text });
+		}
+		await controller.forget([0, 1], "project");
+		controller.noteUserMessage();
+		const tail = await controller.tail([{ role: "user", text: "anything" }]);
+		expect(tail).toContain("1 fact");
+		expect(tail).not.toContain("3 facts");
+		expect(project?.live()).toHaveLength(1);
+	});
+});
+
+describe("reclaiming space", () => {
+	it("maintains every open memory, and publishes", async () => {
+		const { controller, project, common } = build();
+		await controller.maintain();
+		expect(project?.maintains).toBe(1);
+		expect(common.maintains).toBe(1);
+	});
+
+	it("never fails a pass over a memory that would not compact", async () => {
+		const { controller, project } = build();
+		if (project === undefined) throw new Error("this build has a project");
+		project.failNextWrite = new Error("busy");
+		await expect(controller.maintain()).resolves.toBeUndefined();
+	});
+});

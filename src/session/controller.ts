@@ -33,7 +33,11 @@ import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import type { Settings } from "../settings/defaults.ts";
 import { isVectorSpaceMismatch } from "../storage/errors.ts";
-import type { ReadableMemory, WritableMemory } from "../storage/port.ts";
+import {
+	liveFacts,
+	type ReadableMemory,
+	type WritableMemory,
+} from "../storage/port.ts";
 import { defined } from "../tools/args.ts";
 import { alwaysBlock, buildTail, clockLine } from "./tail.ts";
 
@@ -214,7 +218,10 @@ export class MemoryController {
 		for (const [, label, memory] of this.readableScopes()) {
 			const stats = await memory.stats();
 			const tags = await memory.listTags({ limit: 8 });
-			scopes.push({ label, facts: stats.facts, tags: tags.items });
+			// Live, not stored: `facts` counts closed revisions and anything
+			// forgotten since the last maintain, so a memory that was just
+			// tidied would claim to hold more than before it was.
+			scopes.push({ label, facts: liveFacts(stats), tags: tags.items });
 		}
 		return memoryManifest(scopes);
 	}
@@ -471,6 +478,33 @@ export class MemoryController {
 	}
 
 	/**
+	 * Physically reclaims what has been forgotten, in every open memory.
+	 *
+	 * `forget` sets a tombstone and returns; the bytes go at the next
+	 * maintenance, and nothing calls that on its own - plugmem's
+	 * `maintain_every_forgets` is off by default and the engine never schedules
+	 * one. So without this, a memory only ever grows: measured, a thousand facts
+	 * with five hundred forgotten stayed at 1278 KB until a compaction took it
+	 * to 674 KB.
+	 *
+	 * Called at the end of the idle pass, which is the right moment for the same
+	 * reason the pass runs then: the work is O(database), and the pass is what
+	 * produced the tombstones in the first place. Failures are swallowed - a
+	 * memory that did not shrink is a memory that works.
+	 */
+	async maintain(): Promise<void> {
+		for (const memory of [this.deps.project, this.deps.common]) {
+			if (memory === undefined) continue;
+			try {
+				await memory.maintain();
+				await memory.checkpoint();
+			} catch {
+				// Reclaiming space is never worth failing a pass over.
+			}
+		}
+	}
+
+	/**
 	 * The last write, in full, for whoever renders the terminal.
 	 *
 	 * Kept here rather than returned alongside the string because the tool
@@ -649,6 +683,41 @@ export class MemoryController {
 			tokenBudget: this.deps.settings.memory.recallTokenBudget,
 		});
 		return consolidationBlock(found.rendered);
+	}
+
+	/**
+	 * A window of the oldest facts still stored, for the review pass.
+	 *
+	 * Oldest by id, because ids are assigned in order and never reused - so id
+	 * order IS the order things were learned, with no timestamp to compare and
+	 * no sort to run. `from` is the first id to consider, INCLUSIVE: the walk
+	 * stores the id after the last one it showed, so a window that ended at
+	 * [f4] leaves 5 behind. Inclusive rather than exclusive because there is no
+	 * id below zero to mean "nothing shown yet" - with `> from`, [f0] would
+	 * never be reviewed at all.
+	 *
+	 * Why a window at all: the pass reads the TRANSCRIPT, so it only ever sees
+	 * what was just discussed. A fact from six months ago that nobody has
+	 * mentioned since is never reconsidered - not because it is still true, but
+	 * because nothing ever puts it in front of anyone.
+	 */
+	async oldestFacts(
+		scope: Exclude<Scope, "both">,
+		from: number,
+		limit: number,
+	): Promise<{ id: number; text: string; tags: string[] }[]> {
+		const memory = this.readableScope(scope);
+		if (memory === undefined || limit <= 0) return [];
+		return (await memory.scan())
+			.filter((fact) => fact.id >= from)
+			.sort((a, b) => a.id - b.id)
+			.slice(0, limit)
+			.map((fact) => ({ id: fact.id, text: fact.text, tags: fact.tags }));
+	}
+
+	/** The memories a review can walk, project first. */
+	reviewableScopes(): Exclude<Scope, "both">[] {
+		return this.readableScopes().map(([scope]) => scope);
 	}
 
 	// -- scope plumbing -------------------------------------------------------

@@ -9,6 +9,8 @@ import type { FileOps } from "../../src/fs-ops.ts";
 export class FakeFs implements FileOps {
 	readonly files = new Map<string, string>();
 	readonly dirs = new Set<string>();
+	/** Set to make every write throw, standing in for a read-only disk. */
+	failWrites: Error | undefined;
 
 	async mkdir(dir: string): Promise<void> {
 		this.dirs.add(dir);
@@ -19,6 +21,7 @@ export class FakeFs implements FileOps {
 	}
 
 	async writeFile(file: string, content: string): Promise<void> {
+		if (this.failWrites !== undefined) throw this.failWrites;
 		this.files.set(file, content);
 	}
 

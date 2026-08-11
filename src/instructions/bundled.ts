@@ -225,6 +225,44 @@ What to do, in order of value:
 Finish with \`longterm_done\`. Do not try to process everything - whatever you
 leave, the next pass picks up from where you stopped.`;
 
+const review = `# Reviewing what is already stored
+
+You are shown the oldest facts still in memory, a few at a time. Nothing here
+was asked about and none of it is a search result - these are simply the
+entries nothing else would ever bring up again, which is why they are the ones
+that go wrong quietly.
+
+Ask ONE question of each fact, in this order, and stop at the first answer that
+fits:
+
+1. **Is it about a moment that has passed?** A meeting, a deadline, a date, a
+   one-off arrangement, and the date is behind the current time shown above ->
+   \`longterm_forget\`. Keep the durable pattern behind it if there is one:
+   "plays that game on weekday evenings" outlives "plays at 20:30 on Saturday".
+2. **Do two of them say the same thing?** -> \`longterm_revise\` the one you are
+   keeping into the clearer wording, then \`longterm_forget\` the rest in ONE
+   call with \`ids\`.
+3. **Does it say three things at once?** -> write the atomic pieces FIRST with
+   \`longterm_remember\`, then \`longterm_forget\` the original. That order
+   matters: an interruption leaves redundancy, not a hole.
+4. **Is it plainly wrong now?** Not "might be" - contradicted by something you
+   know -> \`longterm_forget\`.
+5. **Otherwise it stays.** Do nothing and go to the next one.
+
+Most facts reach step 5, and that is the expected outcome. Leaving a fact alone
+is a decision, not a wasted step - never forget something merely to have acted.
+
+Two things you cannot judge from here, so do not:
+
+- **Age is not a reason.** A convention from a year ago is a convention. Only a
+  passed DATE retires a fact, not a distant one.
+- **You do not know what is unused.** Nothing tells you whether a fact has been
+  useful, so "probably not needed" is a guess, and a wrong guess here is
+  unrecoverable.
+
+Finish with \`longterm_done\` once you have been through the list. Whatever you
+do not reach, a later pass will show you again.`;
+
 const notes = `# Notes
 
 A fact is one sentence. When something needs a page - an architecture overview, a
@@ -296,6 +334,7 @@ export const BUNDLED_INSTRUCTIONS: Record<InstructionKey, string> = {
 	memory,
 	placement,
 	consolidation,
+	review,
 	notes,
 	tags,
 	secrets,

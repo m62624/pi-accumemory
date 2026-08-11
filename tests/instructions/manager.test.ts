@@ -11,6 +11,7 @@ const bundled: Record<string, string> = {
 	memory: "when to ask and when to save",
 	placement: "project or common",
 	consolidation: "how the idle pass works",
+	review: "how the second phase re-reads old facts",
 	notes: "when a note beats a fact",
 	tags: "tag conventions",
 	secrets: "NEVER store credentials",

@@ -84,6 +84,11 @@ const SCHEMA: Record<string, FieldSpec> = {
 					maxNudges: COUNT,
 					maxTranscriptChars: COUNT,
 					promoteToCommon: BOOL,
+					review: {
+						kind: "section",
+						fields: { enabled: BOOL, sampleSize: COUNT },
+					},
+					maintain: BOOL,
 				},
 			},
 			crossProject: {

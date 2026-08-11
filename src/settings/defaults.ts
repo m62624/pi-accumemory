@@ -62,6 +62,26 @@ export interface NudgeSettings {
 	cooldownTurns: number;
 }
 
+/**
+ * The second phase of a pass: re-reading what is already stored.
+ *
+ * Separate from the first because it answers a different question and can be
+ * wanted on its own. The first phase reads the transcript, so it only ever
+ * considers what was just discussed; this one walks the oldest facts, which
+ * nothing else would ever bring up again.
+ */
+export interface ReviewSettings {
+	enabled: boolean;
+	/**
+	 * How many old facts one pass looks at, per memory.
+	 *
+	 * Small on purpose. The window walks forward every pass and wraps at the
+	 * end, so the whole memory is covered over time; a large window instead
+	 * spends one long pass on material that is mostly fine.
+	 */
+	sampleSize: number;
+}
+
 export interface ConsolidationSettings {
 	enabled: boolean;
 	quietMs: number;
@@ -69,6 +89,16 @@ export interface ConsolidationSettings {
 	maxNudges: number;
 	maxTranscriptChars: number;
 	promoteToCommon: boolean;
+	review: ReviewSettings;
+	/**
+	 * Reclaim the bytes of forgotten facts at the end of a pass.
+	 *
+	 * On, because nothing else ever does it: `forget` only tombstones, and
+	 * plugmem schedules no maintenance of its own. Off is for someone who wants
+	 * to run `maintain` on their own terms - the space is not lost either way,
+	 * only unreclaimed.
+	 */
+	maintain: boolean;
 }
 
 /**
@@ -167,6 +197,11 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 			maxNudges: 2,
 			maxTranscriptChars: 20_000,
 			promoteToCommon: true,
+			review: {
+				enabled: true,
+				sampleSize: 12,
+			},
+			maintain: true,
 		},
 		crossProject: {
 			enabled: true,

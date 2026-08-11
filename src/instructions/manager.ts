@@ -28,6 +28,7 @@ export const INSTRUCTION_KEYS = [
 	"memory",
 	"placement",
 	"consolidation",
+	"review",
 	"notes",
 	"tags",
 	"secrets",

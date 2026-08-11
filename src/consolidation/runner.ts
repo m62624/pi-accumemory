@@ -29,6 +29,7 @@ import type { ConsolidationSettings } from "../settings/defaults.ts";
 import type { CursorStore } from "./cursor-store.ts";
 import { ConsolidationLedger } from "./ledger.ts";
 import { passMemoryView, passPrompt, passTail } from "./pass.ts";
+import { nextCursor, type ReviewWindow, reviewPrompt } from "./review.ts";
 import type { TranscriptCursor } from "./transcript.ts";
 
 /** The name that ends a pass. Registered only while one is running. */
@@ -67,6 +68,13 @@ export interface RunnerDeps {
 	cursorKey: string;
 	/** How the pass refers to what it is reviewing, in its own prompt. */
 	label: string;
+	/** How far the review phase has walked, filed under the same key. */
+	reviewCursor: {
+		get(key: string): Promise<number>;
+		set(key: string, at: number): Promise<void>;
+	};
+	/** What a person calls one memory; used to head a review window. */
+	scopeLabel(scope: "project" | "user"): string;
 	clock: () => string;
 	/** Reads the unprocessed tail; injected so the walk stays testable. */
 	readTail(cursor: TranscriptCursor | undefined): Promise<{
@@ -85,25 +93,118 @@ export interface PassOutcome {
 export class ConsolidationRunner {
 	constructor(private readonly deps: RunnerDeps) {}
 
+	/**
+	 * One pass: read what happened, then re-read what is already stored.
+	 *
+	 * Two phases and two agent runs, not one run with two sections, for two
+	 * reasons. They compete for the same step budget otherwise, and the first
+	 * phase would routinely eat it. And the second phase must be able to run
+	 * when the first has nothing to do: an idle machine with no new transcript
+	 * is exactly when there is time to age the memory, and refusing then means
+	 * the review happens least on the days it costs least.
+	 */
 	async runOnce(signal?: AbortSignal): Promise<PassOutcome> {
 		if (!this.deps.settings.enabled) return { ran: false, reason: "disabled" };
 
+		const transcript = await this.readPhase(signal);
+		const reviewed = await this.reviewPhase(signal);
+
+		// Reclaim what either phase forgot. Last, because it is the only step
+		// that is about bytes rather than about content, and because both
+		// phases produce the tombstones it collects.
+		if ((transcript || reviewed) && this.deps.settings.maintain) {
+			await this.deps.controller.maintain();
+		}
+
+		if (transcript || reviewed) return { ran: true, steps: 0 };
+		return { ran: false, reason: "nothing new" };
+	}
+
+	/** Phase one: the unprocessed tail of the transcript. Ran, or did not. */
+	private async readPhase(signal?: AbortSignal): Promise<boolean> {
 		const cursor = await this.deps.cursors.get(this.deps.cursorKey);
 		const tail = await this.deps.readTail(cursor);
-		if (tail.turns.length === 0) return { ran: false, reason: "nothing new" };
+		if (tail.turns.length === 0) return false;
 
 		const ledger = new ConsolidationLedger(this.deps.settings);
 		const memory = passMemoryView(
 			await this.deps.controller.consolidationView(queryFrom(tail.turns)),
 		);
-		const prompt = passPrompt({
-			instructions: await this.deps.instructions.read("consolidation"),
-			clock: this.deps.clock(),
-			memory,
-			transcript: tail.turns,
-			label: this.deps.label,
-		});
+		await this.run(
+			passPrompt({
+				instructions: await this.deps.instructions.read("consolidation"),
+				clock: this.deps.clock(),
+				memory,
+				transcript: tail.turns,
+				label: this.deps.label,
+			}),
+			ledger,
+			signal,
+		);
 
+		// Only a pass that was not cut short moves the cursor. Re-reading is
+		// absorbed by the guarded write; skipping is not recoverable.
+		if (signal?.aborted !== true && tail.cursor !== undefined) {
+			await this.deps.cursors.set(this.deps.cursorKey, tail.cursor);
+		}
+		return true;
+	}
+
+	/**
+	 * Phase two: the oldest facts still stored.
+	 *
+	 * The window walks forward and wraps at the end, so every fact is revisited
+	 * eventually and none twice in a row. The cursor is the highest id shown;
+	 * an empty window means the walk reached the end and starts over.
+	 */
+	private async reviewPhase(signal?: AbortSignal): Promise<boolean> {
+		const settings = this.deps.settings.review;
+		if (!settings.enabled || settings.sampleSize <= 0) return false;
+
+		const from = await this.deps.reviewCursor.get(this.deps.cursorKey);
+		const windows: ReviewWindow[] = [];
+		for (const scope of this.deps.controller.reviewableScopes()) {
+			const facts = await this.deps.controller.oldestFacts(
+				scope,
+				from,
+				settings.sampleSize,
+			);
+			if (facts.length > 0) {
+				windows.push({ scope, label: this.deps.scopeLabel(scope), facts });
+			}
+		}
+		if (windows.length === 0) {
+			// The end of the walk. Start again from the beginning next time -
+			// what survived one review is worth asking about again later.
+			if (from > 0) await this.deps.reviewCursor.set(this.deps.cursorKey, 0);
+			return false;
+		}
+
+		const ledger = new ConsolidationLedger(this.deps.settings);
+		await this.run(
+			reviewPrompt({
+				instructions: await this.deps.instructions.read("review"),
+				clock: this.deps.clock(),
+				windows,
+			}),
+			ledger,
+			signal,
+		);
+		if (signal?.aborted !== true) {
+			await this.deps.reviewCursor.set(
+				this.deps.cursorKey,
+				nextCursor(windows),
+			);
+		}
+		return true;
+	}
+
+	/** One agent run under one ledger. Both phases are the same shape. */
+	private async run(
+		prompt: string,
+		ledger: ConsolidationLedger,
+		signal?: AbortSignal,
+	): Promise<void> {
 		await this.deps.agent.run({
 			prompt,
 			tail: () => passTail(ledger),
@@ -116,13 +217,6 @@ export class ConsolidationRunner {
 			finished: () => ledger.finished(),
 			...(signal === undefined ? {} : { signal }),
 		});
-
-		// Only a pass that was not cut short moves the cursor. Re-reading is
-		// absorbed by the guarded write; skipping is not recoverable.
-		if (signal?.aborted !== true && tail.cursor !== undefined) {
-			await this.deps.cursors.set(this.deps.cursorKey, tail.cursor);
-		}
-		return { ran: true, steps: 0 };
 	}
 }
 

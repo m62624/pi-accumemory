@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CursorStore } from "../../src/consolidation/cursor-store.ts";
+import { ReviewCursorStore } from "../../src/consolidation/review-cursor.ts";
 import {
 	ConsolidationRunner,
 	DONE_TOOL,
@@ -44,7 +45,13 @@ function scriptedAgent(script: [name: string, args: string][]): PassAgent & {
 	};
 }
 
-function build(options: { turns?: Turn[]; enabled?: boolean } = {}) {
+function build(
+	options: {
+		turns?: Turn[];
+		enabled?: boolean;
+		settings?: Partial<typeof DEFAULT_SETTINGS.memory.consolidation>;
+	} = {},
+) {
 	const common = new FakeMemory();
 	const project = new FakeMemory();
 	const fs = new FakeFs();
@@ -64,6 +71,11 @@ function build(options: { turns?: Turn[]; enabled?: boolean } = {}) {
 		bundled: BUNDLED_INSTRUCTIONS,
 	});
 	const cursors = new CursorStore(fs, "/ext/state.json", path.posix);
+	const reviewCursor = new ReviewCursorStore(
+		fs,
+		"/ext/review.json",
+		path.posix,
+	);
 	const turns = options.turns ?? [
 		{ role: "user", text: "I will play at 20:30 on Saturday" },
 		{ role: "assistant", text: "noted" },
@@ -74,6 +86,7 @@ function build(options: { turns?: Turn[]; enabled?: boolean } = {}) {
 			settings: {
 				...DEFAULT_SETTINGS.memory.consolidation,
 				enabled: options.enabled ?? true,
+				...options.settings,
 			},
 			controller,
 			cursors,
@@ -81,13 +94,23 @@ function build(options: { turns?: Turn[]; enabled?: boolean } = {}) {
 			agent,
 			cursorKey: "p1",
 			label: "this project (app)",
+			reviewCursor,
+			scopeLabel: (scope) =>
+				scope === "user" ? "your memory about the user" : "this project (app)",
 			clock: () => "[Now: Tuesday, 11 August 2026 at 17:30 (UTC)]",
 			readTail: async (cursor) => {
 				readCursor = cursor;
 				return { turns, cursor: { file: "a.jsonl", line: 12 } };
 			},
 		});
-	return { runner, cursors, project, common, seenCursor: () => readCursor };
+	return {
+		runner,
+		cursors,
+		reviewCursor,
+		project,
+		common,
+		seenCursor: () => readCursor,
+	};
 }
 
 describe("ConsolidationRunner", () => {
@@ -189,5 +212,117 @@ describe("ConsolidationRunner", () => {
 		await runner(agent).runOnce();
 		expect(agent.tails.at(-1)).toMatch(/no actions and is being ended/i);
 		expect(agent.tails).toHaveLength(3);
+	});
+});
+
+describe("the review phase", () => {
+	/** A build whose project memory already holds `count` older facts. */
+	async function seeded(
+		count: number,
+		options: Parameters<typeof build>[0] = {},
+	) {
+		const parts = build(options);
+		for (let i = 0; i < count; i += 1) {
+			await parts.project.remember({
+				text: `an older fact number ${i}`,
+				entity: "project",
+				tags: ["decision"],
+			});
+		}
+		return parts;
+	}
+
+	/** The prompt of the review phase, whichever run it was. */
+	const reviewPromptOf = (agent: { prompts: string[] }) =>
+		agent.prompts.find((prompt) =>
+			/oldest facts still in memory/i.test(prompt),
+		);
+
+	it("runs on its own when the transcript has nothing new", async () => {
+		// The point of the phase. An idle machine with no new transcript is
+		// exactly when there is time to age the memory; refusing then means the
+		// review happens least on the days it costs least.
+		const { runner } = await seeded(3, { turns: [] });
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		expect((await runner(agent).runOnce()).ran).toBe(true);
+		expect(agent.prompts).toHaveLength(1);
+		expect(reviewPromptOf(agent)).toBeDefined();
+	});
+
+	it("shows the oldest facts, with their ids and their scope", async () => {
+		const { runner } = await seeded(3);
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		await runner(agent).runOnce();
+		const review = reviewPromptOf(agent) ?? "";
+		expect(review).toContain("[f0] an older fact number 0");
+		expect(review).toContain('the ids below are scope: "project"');
+		expect(review).toContain("#decision");
+	});
+
+	it("runs as a second agent run, with its own step budget", async () => {
+		// One run with two sections would let the transcript phase eat the
+		// budget, and it routinely would - it is the phase with material.
+		const { runner } = await seeded(3);
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		await runner(agent).runOnce();
+		expect(agent.prompts).toHaveLength(2);
+	});
+
+	it("walks forward, so the next pass sees the next window", async () => {
+		const { runner, reviewCursor } = await seeded(5, { turns: [] });
+		await runner(scriptedAgent([[DONE_TOOL, ""]])).runOnce();
+		expect(await reviewCursor.get("p1")).toBe(5);
+
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		await runner(agent).runOnce();
+		// Nothing after id 4, so the walk wraps instead of re-showing the same
+		// window forever - what survived one review is worth asking about again
+		// later, but not immediately.
+		expect(await reviewCursor.get("p1")).toBe(0);
+		expect(reviewPromptOf(agent)).toBeUndefined();
+	});
+
+	it("keeps the window small, however much is stored", async () => {
+		const { runner } = await seeded(20, {
+			turns: [],
+			settings: { review: { enabled: true, sampleSize: 4 } },
+		});
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		await runner(agent).runOnce();
+		const review = reviewPromptOf(agent) ?? "";
+		expect(review).toContain("[f3]");
+		expect(review).not.toContain("[f4]");
+	});
+
+	it("can be switched off on its own", async () => {
+		const { runner } = await seeded(3, {
+			settings: { review: { enabled: false, sampleSize: 12 } },
+		});
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		await runner(agent).runOnce();
+		expect(reviewPromptOf(agent)).toBeUndefined();
+	});
+});
+
+describe("reclaiming space", () => {
+	it("maintains after a pass, because nothing else ever does", async () => {
+		// `forget` only tombstones; plugmem schedules no maintenance of its own.
+		// Measured: a thousand facts with five hundred forgotten stayed at
+		// 1278 KB until a compaction took it to 674 KB.
+		const { runner, project } = build();
+		await runner(scriptedAgent([[DONE_TOOL, ""]])).runOnce();
+		expect(project.maintains).toBeGreaterThan(0);
+	});
+
+	it("skips it when the pass had nothing to do", async () => {
+		const { runner, project } = build({ turns: [] });
+		await runner(scriptedAgent([])).runOnce();
+		expect(project.maintains).toBe(0);
+	});
+
+	it("can be switched off", async () => {
+		const { runner, project } = build({ settings: { maintain: false } });
+		await runner(scriptedAgent([[DONE_TOOL, ""]])).runOnce();
+		expect(project.maintains).toBe(0);
 	});
 });

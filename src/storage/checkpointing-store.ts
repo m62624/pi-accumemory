@@ -82,6 +82,17 @@ export class CheckpointingStore implements WritableMemory {
 		return this.inner.stats();
 	}
 
+	/**
+	 * Reclaims the bytes of everything forgotten, then publishes.
+	 *
+	 * Forwarded rather than left off the wrapper: this is the handle the session
+	 * writes through, so it is the only one that can compact what the session
+	 * removed.
+	 */
+	async maintain(): Promise<void> {
+		await this.inner.maintain();
+	}
+
 	async checkpoint(): Promise<void> {
 		return this.inner.checkpoint();
 	}
