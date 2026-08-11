@@ -28,14 +28,21 @@ export interface StubEmbedder {
 /**
  * A vector whose direction depends only on the text.
  *
- * Never all zeros: the engine sends an empty string during a rebuild and
- * refuses a zero vector in reply, which a real service never produces either.
+ * Text with no words gets a fixed unit vector rather than the zero vector the
+ * arithmetic would otherwise produce. That case is real, not hypothetical:
+ * `reembed()` on a database with nothing in it sends one request whose input is
+ * the empty string, and the engine then rejects a zero vector in reply with
+ * "invalid input: vector must be nonzero". Measured against plugmem 0.9.0.
  */
 function vectorFor(text: string, dim: number): number[] {
 	const vector = new Array<number>(dim).fill(0);
-	vector[0] = 0.5;
-	for (const word of text.toLowerCase().split(/[^a-z0-9]+/)) {
-		if (word === "") continue;
+	const words = text
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((word) => word !== "");
+	if (words.length === 0)
+		return vector.map((_, index) => (index === 0 ? 1 : 0));
+	for (const word of words) {
 		let hash = 0;
 		for (const character of word) {
 			hash = (hash * 31 + character.charCodeAt(0)) % 2147483647;
