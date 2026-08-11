@@ -35,6 +35,7 @@ import type { Settings } from "./settings/defaults.ts";
 import { CheckpointingStore } from "./storage/checkpointing-store.ts";
 import { CommonStore, type LeasedWriter } from "./storage/common-store.ts";
 import { buildPlugmemConfig, validateEmbedder } from "./storage/config-toml.ts";
+import { syncVectorSpace } from "./storage/embedder-sync.ts";
 import { isLocked } from "./storage/errors.ts";
 import {
 	openReadable,
@@ -117,6 +118,24 @@ export async function startSession(
 		return writer as unknown as LeasedWriter;
 	});
 
+	// Bring the stored vectors in step with the configured embedder BEFORE
+	// anything asks the memory a question. A changed model makes every text
+	// lookup and every text write fail, and without this the first the user
+	// hears of it is a failed tool call in the middle of their work.
+	const syncOptions = {
+		embedderEnabled: settings.memory.embedder.enabled,
+		autoReembed: settings.memory.embedder.autoReembed,
+	};
+	if (syncOptions.embedderEnabled) {
+		await common.withWriteLease(async (writer) => {
+			const result = await syncVectorSpace(writer as unknown as PlugmemStore, {
+				...syncOptions,
+				label: "the shared memory about you",
+			});
+			if (result.notice !== "") notices.push(result.notice);
+		});
+	}
+
 	const router = new ProjectRouter(common);
 	const projectRoot = await detectProjectRoot(cwd, { fs, flavour: pathModule });
 
@@ -139,6 +158,13 @@ export async function startSession(
 			// which is precisely what a cross-project question does.
 			project = new CheckpointingStore(projectWriter);
 			await projectWriter.checkpoint();
+			if (syncOptions.embedderEnabled) {
+				const result = await syncVectorSpace(projectWriter, {
+					...syncOptions,
+					label: "this project's memory",
+				});
+				if (result.notice !== "") notices.push(result.notice);
+			}
 		} catch (error) {
 			// Another session in the same project holds the writer. Saying so
 			// once is honest; pretending the memory works is not.
@@ -209,6 +235,36 @@ export async function startSession(
 				openOptions,
 			);
 			return { memory: reader, close: () => reader.close() };
+		},
+		// A project nobody has opened since the embedder changed still holds
+		// vectors from the old space, and a read-only handle cannot rebuild
+		// them. This takes the writer lock for exactly as long as the repair,
+		// and reports plainly when somebody else is holding it.
+		repairProject: async (id: string) => {
+			if (!settings.memory.embedder.enabled) {
+				return "there is no embedder configured to rebuild its vectors with";
+			}
+			let writer: PlugmemStore;
+			try {
+				writer = await PlugmemStore.open(
+					dbPath(projectDbName(id)),
+					openOptions,
+				);
+			} catch (error) {
+				return isLocked(error)
+					? "a session is open in it right now, so its vectors cannot be rebuilt"
+					: `it could not be opened: ${String(error)}`;
+			}
+			try {
+				const result = await syncVectorSpace(writer, {
+					embedderEnabled: true,
+					autoReembed: true,
+					label: "it",
+				});
+				return result.action === "failed" ? result.notice : undefined;
+			} finally {
+				writer.close();
+			}
 		},
 	});
 

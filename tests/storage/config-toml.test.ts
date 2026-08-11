@@ -10,6 +10,8 @@ const base: EmbedderSettings = {
 	url: "http://localhost:11434/v1/embeddings",
 	model: "bge-m3",
 	apiKeyEnv: null,
+	spaceId: null,
+	autoReembed: true,
 	dim: 1024,
 };
 
@@ -46,6 +48,24 @@ describe("buildPlugmemConfig", () => {
 	it("escapes quotes and backslashes so the file still parses", () => {
 		const toml = buildPlugmemConfig({ ...base, model: 'we"ird\\name' });
 		expect(toml).toContain('model = "we\\"ird\\\\name"');
+	});
+
+	it("omits space_id unless it is pinned", () => {
+		// Left out, plugmem derives the space from the model name - so changing
+		// the model changes the space, which is the safe default: vectors from
+		// two different models are not comparable.
+		expect(buildPlugmemConfig(base)).not.toContain("space_id");
+		expect(buildPlugmemConfig({ ...base, spaceId: "  " })).not.toContain(
+			"space_id",
+		);
+	});
+
+	it("writes a pinned space_id", () => {
+		// Pinning it is how you swap endpoints or aliases for the SAME model
+		// without triggering a rebuild.
+		expect(buildPlugmemConfig({ ...base, spaceId: "my-space" })).toContain(
+			'space_id = "my-space"',
+		);
 	});
 
 	it("ends with a newline", () => {

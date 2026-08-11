@@ -107,7 +107,12 @@ export class PlugmemStore implements WritableMemory {
 
 	async stats(): Promise<MemoryStats> {
 		const stats = this.db.stats();
-		return { facts: stats.facts, entities: stats.entities, edges: stats.edges };
+		return {
+			facts: stats.facts,
+			entities: stats.entities,
+			edges: stats.edges,
+			vectors: stats.vectors,
+		};
 	}
 
 	async checkpoint(): Promise<void> {
@@ -186,7 +191,12 @@ export class PlugmemReader implements ReadableMemory {
 
 	async stats(): Promise<MemoryStats> {
 		const stats = this.db.stats();
-		return { facts: stats.facts, entities: stats.entities, edges: stats.edges };
+		return {
+			facts: stats.facts,
+			entities: stats.entities,
+			edges: stats.edges,
+			vectors: stats.vectors,
+		};
 	}
 
 	/** Adopts the writer's latest published checkpoint. */

@@ -24,6 +24,7 @@ import type { Turn } from "../memory/transcript-view.ts";
 import type { NoteStore } from "../notes/store.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import type { Settings } from "../settings/defaults.ts";
+import { isVectorSpaceMismatch } from "../storage/errors.ts";
 import type { ReadableMemory, WritableMemory } from "../storage/port.ts";
 import { defined } from "../tools/args.ts";
 import { alwaysBlock, buildTail, clockLine } from "./tail.ts";
@@ -51,6 +52,15 @@ export interface ControllerDeps {
 	router: ProjectRouter;
 	/** Opens another project's memory read-only, for a cross-project question. */
 	openProjectReader?: (projectId: string) => Promise<CrossProjectReader>;
+	/**
+	 * Rebuilds another project's vectors after an embedder change.
+	 *
+	 * Needed because a read-only handle cannot repair itself - write verbs are
+	 * refused on one - and only the project's own session repairs it at
+	 * startup. A project nobody has opened since the model changed would
+	 * otherwise answer every cross-project question with an error.
+	 */
+	repairProject?: (projectId: string) => Promise<string | undefined>;
 	now?: () => Date;
 }
 
@@ -258,18 +268,48 @@ export class MemoryController {
 		if (open === undefined)
 			return "Cross-project memory is not available in this session.";
 
-		const reader = await open(project.projectId);
+		const answer = await this.readProject(open, project.projectId, question);
+		if (answer !== undefined) return this.render(project.name, answer);
+
+		// The vectors in that project are from a different embedder, and a
+		// read-only handle cannot rebuild them. Repair it with a brief writer,
+		// then ask again - once.
+		const repair = this.deps.repairProject;
+		if (repair === undefined) return MISMATCHED_PROJECT(project.name);
+		const failure = await repair(project.projectId);
+		if (failure !== undefined) return `Project "${project.name}": ${failure}`;
+
+		const retried = await this.readProject(open, project.projectId, question);
+		return retried === undefined
+			? MISMATCHED_PROJECT(project.name)
+			: this.render(project.name, retried);
+	}
+
+	/** The rendered recall, or `undefined` when the vector space disagrees. */
+	private async readProject(
+		open: (projectId: string) => Promise<CrossProjectReader>,
+		projectId: string,
+		question: string,
+	): Promise<string | undefined> {
+		const reader = await open(projectId);
 		try {
 			const found = await reader.memory.recall({
 				query: question,
 				tokenBudget: this.deps.settings.memory.recallTokenBudget,
 			});
-			return found.rendered.trim() === ""
-				? `Project "${project.name}" has nothing on this.`
-				: `Project "${project.name}":\n${found.rendered.trim()}`;
+			return found.rendered.trim();
+		} catch (error) {
+			if (isVectorSpaceMismatch(error)) return undefined;
+			throw error;
 		} finally {
 			reader.close();
 		}
+	}
+
+	private render(name: string, rendered: string): string {
+		return rendered === ""
+			? `Project "${name}" has nothing on this.`
+			: `Project "${name}":\n${rendered}`;
 	}
 
 	async projects(): Promise<string> {
@@ -447,6 +487,11 @@ export class MemoryController {
 		return notes;
 	}
 }
+
+const MISMATCHED_PROJECT = (name: string): string =>
+	`Project "${name}" was last written with a different embedding model, and its ` +
+	"vectors could not be rebuilt just now - most likely because a session is open " +
+	"in it. Ask again later, or run /longterm-reembed.";
 
 const ASK_HINT =
 	"You have answered a few times now without looking anything up. If any of it rested " +

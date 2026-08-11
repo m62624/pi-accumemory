@@ -33,3 +33,21 @@ export function needsCheckpoint(error: unknown): boolean {
 export function isLocked(error: unknown): boolean {
 	return errorCode(error) === PLUGMEM_LOCKED;
 }
+
+/**
+ * The stored vectors were produced in a different semantic space than the one
+ * now configured.
+ *
+ * This is the failure mode behind changing the embedding model. The database
+ * still OPENS - which is what makes it dangerous - and then every recall and
+ * every write fails, so the memory is not degraded but dead. The engine reports
+ * it as `PLUGMEM_ENGINE` with a distinctive message, so the message is what
+ * identifies it; the code alone is too broad to branch on.
+ */
+export function isVectorSpaceMismatch(error: unknown): boolean {
+	if (errorCode(error) !== PLUGMEM_ENGINE) return false;
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("vector space mismatch");
+}
+
+export const PLUGMEM_ENGINE = "PLUGMEM_ENGINE";

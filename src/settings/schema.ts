@@ -50,6 +50,8 @@ const SCHEMA: Record<string, FieldSpec> = {
 					url: { kind: "string" },
 					model: { kind: "string" },
 					apiKeyEnv: { kind: "string", nullable: true },
+					spaceId: { kind: "string", nullable: true },
+					autoReembed: BOOL,
 					dim: COUNT,
 				},
 			},

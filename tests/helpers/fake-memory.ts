@@ -49,6 +49,10 @@ export class FakeMemory implements WritableMemory {
 	checkpoints = 0;
 	/** Set to make the next write reject, standing in for PLUGMEM_LOCKED. */
 	failNextWrite: Error | undefined;
+	/** Vector slots reported by `stats()`; set it to model a partial embedding. */
+	vectors = 0;
+	/** Set to make every recall reject, standing in for a vector space mismatch. */
+	failEveryRecall: Error | undefined;
 
 	/**
 	 * Starts at 0, because the real engine does - its first fact renders as
@@ -129,6 +133,7 @@ export class FakeMemory implements WritableMemory {
 	}
 
 	async recall(input: RecallInput): Promise<RecallResult> {
+		if (this.failEveryRecall !== undefined) throw this.failEveryRecall;
 		// A recall needs a retrieval SOURCE. Query text and anchor entities are
 		// sources; tags and `asOf` are filters over what a source produced.
 		// Against the real engine a filter-only recall returns nothing at all,
@@ -255,6 +260,7 @@ export class FakeMemory implements WritableMemory {
 			facts: this.live().length,
 			entities: entities.size,
 			edges: this.edges.length,
+			vectors: this.vectors,
 		};
 	}
 

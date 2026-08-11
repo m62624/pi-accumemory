@@ -63,12 +63,23 @@ describe("the settings example in SETTINGS.md", () => {
 		expect(doc).toMatch(/replaces the global one.*not merged/is);
 	});
 
-	it("says which settings need a reembed", async () => {
+	it("explains that a model change is repaired automatically", async () => {
+		// The behaviour a user would otherwise discover as a failed lookup in
+		// the middle of their work.
 		const doc = await readFile(
 			new URL("../../SETTINGS.md", import.meta.url),
 			"utf8",
 		);
-		expect(doc).toMatch(/embedder\.model.*embedder\.dim/s);
+		expect(doc).toMatch(/autoReembed.*on by default/is);
+		expect(doc).toContain("vector space mismatch");
 		expect(doc).toContain("/longterm-reembed");
+	});
+
+	it("says a rebuild is resumable, because a partial one is normal", async () => {
+		const doc = await readFile(
+			new URL("../../SETTINGS.md", import.meta.url),
+			"utf8",
+		);
+		expect(doc).toMatch(/resumable|running it again/i);
 	});
 });

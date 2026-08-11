@@ -76,6 +76,11 @@ export function buildPlugmemConfig(embedder: EmbedderSettings): string {
 		`url = ${tomlString(embedder.url)}`,
 		`model = ${tomlString(embedder.model)}`,
 	];
+	// Written only when pinned. Left out, plugmem derives the space from the
+	// model name, so changing the model changes the space - which is the safe
+	// default, because vectors from two models are not comparable.
+	const spaceId = embedder.spaceId?.trim();
+	if (spaceId) lines.push(`space_id = ${tomlString(spaceId)}`);
 	const apiKeyEnv = embedder.apiKeyEnv?.trim();
 	if (apiKeyEnv) lines.push(`api_key_env = ${tomlString(apiKeyEnv)}`);
 	return `${lines.join("\n")}\n`;

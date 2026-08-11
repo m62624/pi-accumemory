@@ -20,8 +20,28 @@ export interface EmbedderSettings {
 	/** Name of the environment variable holding the key, never the key itself. */
 	apiKeyEnv: string | null;
 	/**
-	 * Written into the database file at creation. A database refuses to open
-	 * under a different dim, so changing this needs a reembed.
+	 * The semantic space the stored vectors belong to.
+	 *
+	 * `null` lets plugmem use its own default, which is the model name - so
+	 * changing the model changes the space, which is usually what you want.
+	 * Pin it to a name of your own when you are swapping endpoints or aliases
+	 * for the SAME model and do not want a rebuild.
+	 */
+	spaceId: string | null;
+	/**
+	 * Rebuild stored vectors by itself when they no longer match the embedder.
+	 *
+	 * On by default because the alternative is that the memory stops answering
+	 * and says so only at the first lookup. Turn it off to be told instead of
+	 * repaired - the rebuild is then one `/longterm-reembed` away.
+	 */
+	autoReembed: boolean;
+	/**
+	 * Embedding width, written into the database at creation.
+	 *
+	 * Changing it does NOT stop the database opening - measured, not assumed -
+	 * but the stored vectors then belong to a width nothing else uses, so a
+	 * rebuild is still needed. With `autoReembed` on, that happens by itself.
 	 */
 	dim: number;
 }
@@ -104,6 +124,8 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 			url: "http://localhost:11434/v1/embeddings",
 			model: "bge-m3",
 			apiKeyEnv: null,
+			spaceId: null,
+			autoReembed: true,
 			dim: 1024,
 		},
 		instructions: {

@@ -37,6 +37,8 @@ day it does not.
 			"url": "http://localhost:11434/v1/embeddings",
 			"model": "bge-m3",
 			"apiKeyEnv": null,
+			"spaceId": null,
+			"autoReembed": true,
 			"dim": 1024
 		},
 		"instructions": {
@@ -172,20 +174,46 @@ anything else. `multilingual-e5-small` is a lighter alternative to `bge-m3`.
 `apiKeyEnv` is the **name of an environment variable** holding a bearer token,
 never the token itself. Nothing in this extension ever stores a credential.
 
-### Two settings that need a rebuild
+### Changing the model: handled for you
 
-`embedder.model` and `embedder.dim` are written into the database files. After
-changing either — or after switching the embedder on for the first time — run:
+Vectors from two different models are not comparable, so plugmem refuses to mix
+them. What that looks like, measured against the engine:
 
-```
-/longterm-reembed
-```
+| | |
+|---|---|
+| opening the database | works |
+| a lookup or a save **with text** | fails: `vector space mismatch` |
+| tag/graph lookups, listing, exporting, forgetting | keep working |
 
-The first-time case is the quiet one. Nothing errors: the old facts simply have
-no vectors, so semantic search silently answers from half the memory.
+Nothing is lost and nothing is silently wrong — but the two things this
+extension is built on stop, and you would only find out at the first lookup.
 
-`dim` in particular cannot change on a database that already has facts without
-that rebuild; the engine refuses to open a file whose stored width disagrees.
+So `autoReembed` is **on by default** and the extension repairs this itself:
+
+- at session start it checks the shared memory and this project's, and rebuilds
+  whichever is out of step before anything asks a question;
+- another project's memory is repaired the moment a cross-project question
+  needs it — a read-only handle cannot rebuild itself, so this takes the writer
+  lock briefly and says so plainly if somebody else is holding it;
+- switching the embedder **on** over an older memory is caught too. That case
+  errors at nothing at all: the old facts simply have no vectors, so
+  meaning-based recall would answer from a fraction of the memory and say
+  nothing about it.
+
+Set `autoReembed: false` to be told instead of repaired; the rebuild is then one
+`/longterm-reembed` away. That command always walks **every** memory in the
+workspace — a half-rebuilt workspace answers from two different vector spaces
+with nothing reporting it.
+
+A rebuild is resumable: each fact is replaced in place, so an interrupted one
+keeps what it finished and running it again completes the job.
+
+### `spaceId`
+
+`null` (the default) lets plugmem derive the space from the model name — so
+changing the model changes the space, which is what you want. Pin it to a name
+of your own only when you are swapping endpoints or aliases for the **same**
+model and do not want a rebuild.
 
 ## Instructions you can extend
 

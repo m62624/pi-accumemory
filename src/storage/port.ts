@@ -108,6 +108,15 @@ export interface MemoryStats {
 	facts: number;
 	entities: number;
 	edges: number;
+	/**
+	 * Stored vector slots.
+	 *
+	 * Fewer of these than facts, with an embedder configured, means part of the
+	 * memory has no vectors - the silent state after switching the embedder on
+	 * over an existing database. Semantic recall then answers from a fraction
+	 * of what is stored and says nothing about it.
+	 */
+	vectors: number;
 }
 
 export interface EdgeRef {
