@@ -167,3 +167,47 @@ describe("InstructionManager.compose", () => {
 		expect(composed).toContain("NEVER store credentials");
 	});
 });
+
+describe("InstructionManager with gaps", () => {
+	/** A bundle missing keys, which is what a partial upgrade looks like. */
+	function sparse(fs: FakeFs, text: Record<string, string>) {
+		return new InstructionManager({
+			fs,
+			flavour: path.posix,
+			defaultsDir: "/ext/instructions/defaults",
+			globalAppendDir: "/ext/instructions/append",
+			bundled: text,
+		});
+	}
+
+	it("syncs only the keys it actually has text for", async () => {
+		// A key added to the list before its text exists must not write an
+		// empty default file - an empty instruction reads as "no rule here"
+		// and is indistinguishable from one that was deleted on purpose.
+		const fs = new FakeFs();
+		const report = await sparse(fs, { memory: "ask first" }).sync();
+		expect(report.created).toEqual(["memory"]);
+		expect(fs.files.has("/ext/instructions/defaults/tags.md")).toBe(false);
+	});
+
+	it("reads an absent key as empty rather than as undefined", async () => {
+		const fs = new FakeFs();
+		expect(await sparse(fs, {}).read("tags")).toBe("");
+	});
+
+	it("leaves empty sections out of a composition", async () => {
+		// Otherwise the prompt grows blank-line gaps for every key that has no
+		// text, and every one of those is paid for on each turn.
+		const fs = new FakeFs();
+		const composed = await sparse(fs, {
+			memory: "ask first",
+			secrets: "NEVER store credentials",
+		}).compose(["memory", "tags", "notes"]);
+		expect(composed).toBe("ask first\n\nNEVER store credentials");
+	});
+
+	it("composes to nothing when there is no text at all", async () => {
+		const fs = new FakeFs();
+		expect(await sparse(fs, {}).compose(["memory"])).toBe("");
+	});
+});

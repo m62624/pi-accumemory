@@ -75,6 +75,7 @@ function harness(options: { lockUntilAttempt?: number } = {}) {
 	return {
 		backing,
 		reader,
+		openWriter,
 		counts: () => ({ opens, closes, published, seen }),
 		store: (extra = {}) =>
 			new CommonStore(reader, openWriter, { sleep: async () => {}, ...extra }),
@@ -191,6 +192,37 @@ describe("CommonStore", () => {
 		const h = harness();
 		await h.store().recall({ query: "anything" });
 		await h.store().stats();
+		// Every read, not just the two above: a read that quietly takes the
+		// writer lock would block every other terminal on the machine, and it
+		// would do it only when that particular question was asked.
+		await h.store().scan();
+		await h.store().get(0);
+		await h.store().tagsOf(0);
+		await h.store().listTags();
 		expect(h.counts().opens).toBe(0);
+	});
+
+	it("takes a lease for every kind of write", async () => {
+		const h = harness();
+		const store = h.store();
+		const stored = await store.remember({ text: "a fact", entity: "user" });
+		await store.revise(stored.id, { text: "a corrected fact" });
+		await store.link({ src: "user", rel: "works_on", dst: "project:x" });
+		await store.unlink({ src: "user", rel: "works_on", dst: "project:x" });
+		await store.forget(stored.id);
+		expect(h.counts().opens).toBe(5);
+		expect(h.counts().closes).toBe(5);
+	});
+
+	it("sleeps for real when nobody injected a clock", async () => {
+		// The default matters: without it the retry loop spins, and the point
+		// of backing off is to give the other session time to finish.
+		const h = harness({ lockUntilAttempt: 2 });
+		const store = new CommonStore(h.reader, h.openWriter, {
+			lockBackoffMs: 1,
+		});
+		await expect(
+			store.remember({ text: "a fact", entity: "user" }),
+		).resolves.toBeDefined();
 	});
 });

@@ -330,7 +330,8 @@ export class MemoryController {
 		const suggestions = await this.tagSuggestions(memory, input.tags ?? []);
 		const stored = await memory.rememberGuarded({
 			text: input.text,
-			...defined({ entity: input.entity, tags: input.tags }),
+			entity: input.entity ?? this.defaultEntity(scope),
+			...defined({ tags: input.tags }),
 		});
 		this.nudge.noteWrite();
 
@@ -437,6 +438,27 @@ export class MemoryController {
 		return this.deps.projectName === undefined
 			? "this project"
 			: `this project (${this.deps.projectName})`;
+	}
+
+	/**
+	 * The entity a fact belongs to when the model did not name one.
+	 *
+	 * Not cosmetic, and not optional. The duplicate guard compares a new fact
+	 * against the recent facts *of the entity it names*; a fact that names none
+	 * is compared against nothing, so `rememberGuarded` degenerates into
+	 * `remember` and stores the same sentence as many times as it is sent.
+	 * Measured against the engine: six identical guarded writes with no entity
+	 * produced six facts, the same six with `entity: "user"` produced one and
+	 * five refusals.
+	 *
+	 * So every fact lands under an entity, and the default is the one from the
+	 * taxonomy: the user for shared facts, the project for project facts.
+	 */
+	private defaultEntity(scope: Scope): string {
+		if (scope === "user") return "user";
+		return this.deps.projectId === undefined
+			? "project"
+			: `project:${this.deps.projectId}`;
 	}
 
 	private readableScope(scope: Scope): ReadableMemory | undefined {

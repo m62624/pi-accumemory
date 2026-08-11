@@ -166,12 +166,40 @@ describe("tool behaviour", () => {
 	});
 
 	it("explains itself rather than failing outside a project", async () => {
+		// Every note tool, not just the one that creates: a directory that is
+		// not a project has no project notes to read, change or delete either,
+		// and each of those has its own way of reaching for a store that does
+		// not exist.
 		const { call } = build({ withProject: false });
-		expect(
-			await call("longterm_note_create", { title: "x", content: "y" }),
-		).toMatch(/not a project/i);
+		for (const [name, args] of [
+			["longterm_note_create", { title: "x", content: "y" }],
+			["longterm_note_read", { note_id: "n1" }],
+			["longterm_note_update", { note_id: "n1", content: "y" }],
+			["longterm_note_delete", { note_id: "n1" }],
+		] as const) {
+			expect(await call(name, args), name).toMatch(/not a project/i);
+		}
 		expect(await call("longterm_remember", { text: "x" })).toMatch(
 			/not a project/i,
+		);
+	});
+
+	it("updates a note through its id", async () => {
+		const { call } = build();
+		const created = await call("longterm_note_create", {
+			title: "Overview",
+			content: "the body",
+		});
+		const noteId = /note (\S+) /.exec(created)?.[1] ?? "";
+		expect(
+			await call("longterm_note_update", {
+				note_id: noteId,
+				content: "a newer body",
+				title: "Overview v2",
+			}),
+		).toMatch(/updated note/i);
+		expect(await call("longterm_note_read", { note_id: noteId })).toContain(
+			"a newer body",
 		);
 	});
 

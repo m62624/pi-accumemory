@@ -88,7 +88,9 @@ describe("tool arguments", () => {
 			text: "a different statement",
 			entity: 7,
 		});
-		expect(project.live()[1]?.entity).toBeUndefined();
+		// Not `7`, and not nothing either: a fact with no entity is a fact the
+		// duplicate guard cannot compare against anything.
+		expect(project.live()[1]?.entity).toBe("project");
 	});
 
 	it("ignores a prefix or cursor that is not a string", async () => {

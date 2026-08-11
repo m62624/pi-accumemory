@@ -33,7 +33,11 @@ import { MemoryController } from "./session/controller.ts";
 import { clockLine } from "./session/tail.ts";
 import type { Settings } from "./settings/defaults.ts";
 import { CheckpointingStore } from "./storage/checkpointing-store.ts";
-import { CommonStore, type LeasedWriter } from "./storage/common-store.ts";
+import {
+	CommonMemoryBusyError,
+	CommonStore,
+	type LeasedWriter,
+} from "./storage/common-store.ts";
 import { buildPlugmemConfig, validateEmbedder } from "./storage/config-toml.ts";
 import { syncVectorSpace } from "./storage/embedder-sync.ts";
 import { isLocked } from "./storage/errors.ts";
@@ -326,19 +330,56 @@ export async function startSession(
 			// Every database in the workspace, because a partial reembed leaves
 			// half the memory answering in one vector space and half in another.
 			const names = [COMMON_DB, ...(await listDbNames(fs, pathModule, layout))];
-			let done = 0;
+			// This session already holds the writer for its own project, and a
+			// second writer on the same file is refused by the engine - it would
+			// report the session as "locked by another process" when the other
+			// process is itself. So that one database is rebuilt through the
+			// handle we have rather than through a new one.
+			const ownName =
+				projectId === undefined ? undefined : projectDbName(projectId);
+			const done: string[] = [];
+			const skipped: string[] = [];
 			for (const name of names) {
 				onProgress?.(name);
-				const writer = await PlugmemStore.open(dbPath(name), openOptions);
 				try {
-					await writer.reembed();
-					await writer.checkpoint();
-					done += 1;
-				} finally {
-					writer.close();
+					if (name === COMMON_DB) {
+						// Through the lease, not a bare writer: the lease publishes
+						// and then refreshes our read-only handle. Skipping that
+						// leaves this session reading the pre-rebuild snapshot -
+						// old vectors, new embedder, mismatch on the next question.
+						await common.withWriteLease((writer) =>
+							(writer as unknown as PlugmemStore).reembed(),
+						);
+					} else if (name === ownName && projectWriter !== undefined) {
+						await projectWriter.reembed();
+						await projectWriter.checkpoint();
+					} else {
+						const writer = await PlugmemStore.open(dbPath(name), openOptions);
+						try {
+							await writer.reembed();
+							await writer.checkpoint();
+						} finally {
+							writer.close();
+						}
+					}
+					done.push(name);
+				} catch (error) {
+					// One database held by another session must not cost the user
+					// the rebuild of all the others; it must also not pass in
+					// silence, because a half-rebuilt workspace answers from two
+					// vector spaces at once.
+					if (!isLocked(error) && !(error instanceof CommonMemoryBusyError)) {
+						throw error;
+					}
+					skipped.push(name);
 				}
 			}
-			return `Re-embedded ${done} of ${names.length} memories.`;
+			const summary = `Re-embedded ${done.length} of ${names.length} memories.`;
+			return skipped.length === 0
+				? summary
+				: `${summary} Skipped ${skipped.join(", ")}: another session is holding ` +
+						"them open. Close it and run this again, or the skipped memories keep " +
+						"their old vectors.";
 		},
 		...(projectId === undefined ? {} : { projectId }),
 		...(projectRoot === undefined ? {} : { projectRoot }),

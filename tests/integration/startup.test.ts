@@ -19,6 +19,10 @@ import {
 } from "../../src/settings/defaults.ts";
 import { type StartedSession, startSession } from "../../src/startup.ts";
 import { PlugmemStore } from "../../src/storage/plugmem-store.ts";
+import {
+	type StubEmbedder,
+	startStubEmbedder,
+} from "../helpers/stub-embedder.ts";
 
 function settingsWith(patch: (draft: Settings) => void): Settings {
 	const draft = structuredClone(DEFAULT_SETTINGS);
@@ -30,6 +34,7 @@ describe("startSession", () => {
 	let root: string;
 	let agentDir: string;
 	let project: string;
+	let embedder: StubEmbedder | undefined;
 	const started: StartedSession[] = [];
 	const extra: { close(): void }[] = [];
 
@@ -40,8 +45,22 @@ describe("startSession", () => {
 		await mkdir(path.join(project, ".git"), { recursive: true });
 	});
 
+	/** Settings pointing at a stub embedding service started on demand. */
+	async function embedding(): Promise<Settings> {
+		embedder ??= await startStubEmbedder();
+		const service = embedder;
+		return settingsWith((draft) => {
+			draft.memory.embedder.enabled = true;
+			draft.memory.embedder.url = service.url;
+			draft.memory.embedder.model = "stub";
+			draft.memory.embedder.dim = service.dim;
+		});
+	}
+
 	afterEach(async () => {
 		for (const session of started.splice(0)) session.close();
+		await embedder?.close();
+		embedder = undefined;
 		for (const handle of extra.splice(0)) {
 			try {
 				handle.close();
@@ -265,5 +284,60 @@ describe("startSession", () => {
 		);
 		extra.push(writer);
 		await expect(writer.stats()).resolves.toBeDefined();
+	});
+
+	it("re-embeds its own project without colliding with itself", async () => {
+		// The session holds the writer for its own project for as long as it
+		// runs. A rebuild that opens a second writer on that same file is
+		// refused by the engine, and the message it produces - "locked by
+		// another process" - names this very session as the other process.
+		// No embedder needs to answer for this: with nothing stored there is
+		// nothing to send, and the lock is taken before any of that.
+		const session = await start(project, await embedding());
+		const seen: string[] = [];
+		const summary = await session.reembed((name) => seen.push(name));
+		expect(summary).toMatch(/Re-embedded 2 of 2/);
+		expect(summary).not.toMatch(/skipped/i);
+		expect(seen).toHaveLength(2);
+	});
+
+	it("rebuilds the rest when one database is held by somebody else", async () => {
+		// A workspace answering from two vector spaces at once is the failure
+		// this reports rather than hides.
+		const other = path.join(root, "other");
+		await mkdir(path.join(other, ".git"), { recursive: true });
+
+		const held = await start(other, await embedding());
+		const session = await start(project, await embedding());
+		const summary = await session.reembed();
+		expect(summary).toMatch(/Re-embedded 2 of 3/);
+		expect(summary).toMatch(new RegExp(`Skipped .*${held.projectId}`));
+		expect(summary).toMatch(/another session is holding/i);
+	});
+
+	it("stores a repeated fact once, even when nothing named an entity", async () => {
+		// The duplicate guard compares a new fact against the recent facts of
+		// the entity it names. A fact naming none is compared against nothing,
+		// so an unqualified guarded write silently degrades into an unguarded
+		// one - which is how six identical calls produced six facts.
+		const session = await start(project);
+		const text = "the cache is off because it raced with the warmup task";
+		expect(await session.controller.remember({ text })).toMatch(/Stored \[f/);
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			expect(await session.controller.remember({ text })).toMatch(
+				/already holds something/i,
+			);
+		}
+	});
+
+	it("guards a repeated fact about the user the same way", async () => {
+		const session = await start(project);
+		const text = "prefers Rust for systems work";
+		expect(await session.controller.remember({ text, scope: "user" })).toMatch(
+			/Stored \[f/,
+		);
+		expect(await session.controller.remember({ text, scope: "user" })).toMatch(
+			/already holds something/i,
+		);
 	});
 });

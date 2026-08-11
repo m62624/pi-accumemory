@@ -61,6 +61,11 @@ separate facts before writing it.
 \`longterm_remember\` refuses on its own to store something the memory already
 holds, so you do not need to search before writing.
 
+**One call stores one fact.** The reply tells you which: \`Stored [f7]\`. Repeating
+the same call does not make the fact more stored - it is either already there or
+it was refused as a duplicate, and either way the answer is to move on. If you
+have several distinct facts, send several calls with *different* text.
+
 ## When something turns out to be wrong
 
 - It changed: \`longterm_revise\` - the old version stays as history.
