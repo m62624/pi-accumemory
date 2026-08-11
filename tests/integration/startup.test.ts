@@ -213,10 +213,17 @@ describe("startSession", () => {
 		expect(session.notices.join(" ")).toMatch(/embedder is off/i);
 	});
 
-	it("has no consolidation pass outside a project", async () => {
+	it("still has a consolidation pass outside a project", async () => {
+		// It used to refuse, on the reasoning that there was nothing to resume
+		// from - which was simply wrong: pi keys the transcript directory by
+		// WORKING DIRECTORY, not by project. What a non-project directory lacks
+		// is a project memory, so the pass curates the shared memory about the
+		// user and nothing else. That is the right answer rather than a
+		// degraded one; there is no codebase there to hold facts about.
 		const session = await start(root);
-		expect(session.consolidation).toBeUndefined();
-		expect(session.consolidationQuietMs).toBe(0);
+		expect(session.projectId).toBeUndefined();
+		expect(session.consolidation).toBeDefined();
+		expect(session.consolidationQuietMs).toBeGreaterThan(0);
 	});
 
 	it("disables the idle timer when consolidation is switched off", async () => {

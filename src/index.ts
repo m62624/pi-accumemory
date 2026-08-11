@@ -234,7 +234,15 @@ export default function accumemory(pi: ExtensionAPI): void {
 			await ready;
 			const runner = session?.consolidation;
 			if (runner === undefined) {
-				ctx.ui.notify("There is no consolidation pass to run here.", "warning");
+				// The only way to get here now is having switched it off, so say
+				// that rather than the old sentence, which named no reason and
+				// was usually shown for one that was not true anyway.
+				ctx.ui.notify(
+					session === undefined
+						? (startupError ?? "Long-term memory is off.")
+						: 'The consolidation pass is switched off ("memory.consolidation.enabled": false in settings.json).',
+					"warning",
+				);
 				return;
 			}
 			idle.interrupt();

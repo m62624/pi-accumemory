@@ -324,38 +324,43 @@ export async function startSession(
 		layout.consolidationStateFile,
 		pathModule,
 	);
-	const projectLabel =
+	// A pass runs outside a project too, and the reasoning that used to stop it
+	// was simply wrong: pi keys the transcript directory by WORKING DIRECTORY,
+	// not by project, so there is always something to resume from. What a
+	// non-project directory lacks is a project memory - so the pass curates the
+	// shared memory about the user and nothing else, which is the correct answer
+	// rather than a degraded one. There is no codebase there to have facts about.
+	const label =
 		projectRoot === undefined
-			? "this session"
+			? "a directory that is not a project, so only the shared memory about the user is open here"
 			: `this project (${basename(projectRoot)})`;
 
-	// No project, no pass: the transcript directory pi writes is keyed by
-	// working directory, so outside a project there is nothing to resume from.
-	const consolidation =
-		projectId === undefined || !settings.memory.consolidation.enabled
-			? undefined
-			: new ConsolidationRunner({
-					settings: settings.memory.consolidation,
-					controller,
-					cursors,
-					instructions,
-					agent: piPassAgent({
+	const consolidation = !settings.memory.consolidation.enabled
+		? undefined
+		: new ConsolidationRunner({
+				settings: settings.memory.consolidation,
+				controller,
+				cursors,
+				instructions,
+				agent: piPassAgent({
+					cwd,
+					agentDir: options.agentDir,
+					tools: longtermTools(controller),
+				}),
+				// Outside a project the working directory is the key, because
+				// that is exactly what pi files the transcript under.
+				cursorKey: projectId ?? cwd,
+				label,
+				clock: () => clockLine(new Date(), settings.timezone),
+				readTail: (cursor) =>
+					readTranscriptTail(fs, {
+						flavour: pathModule,
+						sessionsRoot: pathModule.join(options.agentDir, "sessions"),
 						cwd,
-						agentDir: options.agentDir,
-						tools: longtermTools(controller),
+						maxChars: settings.memory.consolidation.maxTranscriptChars,
+						...(cursor === undefined ? {} : { cursor }),
 					}),
-					projectId,
-					projectLabel,
-					clock: () => clockLine(new Date(), settings.timezone),
-					readTail: (cursor) =>
-						readTranscriptTail(fs, {
-							flavour: pathModule,
-							sessionsRoot: pathModule.join(options.agentDir, "sessions"),
-							cwd,
-							maxChars: settings.memory.consolidation.maxTranscriptChars,
-							...(cursor === undefined ? {} : { cursor }),
-						}),
-				});
+			});
 
 	return {
 		controller,

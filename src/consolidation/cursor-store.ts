@@ -1,5 +1,8 @@
 /**
- * How far the consolidation pass has read each project's transcript.
+ * How far the consolidation pass has read each transcript.
+ *
+ * Keyed by project id inside a project and by working directory outside one,
+ * because that is what pi keys the transcript itself by.
  *
  * A tiny JSON file, and deliberately the least important thing in the system:
  * losing it costs one pass re-reading material it has already seen, which the
@@ -26,14 +29,14 @@ export class CursorStore {
 		private readonly flavour: PathFlavour,
 	) {}
 
-	async get(projectId: string): Promise<TranscriptCursor | undefined> {
+	async get(key: string): Promise<TranscriptCursor | undefined> {
 		await this.load();
-		return this.cursors[projectId];
+		return this.cursors[key];
 	}
 
-	async set(projectId: string, cursor: TranscriptCursor): Promise<void> {
+	async set(key: string, cursor: TranscriptCursor): Promise<void> {
 		await this.load();
-		this.cursors[projectId] = cursor;
+		this.cursors[key] = cursor;
 		try {
 			await this.fs.mkdir(this.flavour.dirname(this.file));
 			await this.fs.writeFile(

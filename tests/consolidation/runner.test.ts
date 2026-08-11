@@ -79,8 +79,8 @@ function build(options: { turns?: Turn[]; enabled?: boolean } = {}) {
 			cursors,
 			instructions,
 			agent,
-			projectId: "p1",
-			projectLabel: "this project (app)",
+			cursorKey: "p1",
+			label: "this project (app)",
 			clock: () => "[Now: Tuesday, 11 August 2026 at 17:30 (UTC)]",
 			readTail: async (cursor) => {
 				readCursor = cursor;

@@ -16,7 +16,7 @@ const context = {
 		{ role: "user", text: "I will play at 20:30 on Saturday" },
 		{ role: "assistant", text: "noted" },
 	] as Turn[],
-	projectLabel: "this project (app)",
+	label: "this project (app)",
 };
 
 describe("passPrompt", () => {

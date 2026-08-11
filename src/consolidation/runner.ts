@@ -57,8 +57,16 @@ export interface RunnerDeps {
 	cursors: CursorStore;
 	instructions: InstructionManager;
 	agent: PassAgent;
-	projectId: string;
-	projectLabel: string;
+	/**
+	 * What the cursor is filed under.
+	 *
+	 * A project id inside a project, the working directory outside one. It
+	 * only has to be stable and unique per transcript, and the transcript pi
+	 * writes is keyed by working directory - not by project.
+	 */
+	cursorKey: string;
+	/** How the pass refers to what it is reviewing, in its own prompt. */
+	label: string;
 	clock: () => string;
 	/** Reads the unprocessed tail; injected so the walk stays testable. */
 	readTail(cursor: TranscriptCursor | undefined): Promise<{
@@ -80,7 +88,7 @@ export class ConsolidationRunner {
 	async runOnce(signal?: AbortSignal): Promise<PassOutcome> {
 		if (!this.deps.settings.enabled) return { ran: false, reason: "disabled" };
 
-		const cursor = await this.deps.cursors.get(this.deps.projectId);
+		const cursor = await this.deps.cursors.get(this.deps.cursorKey);
 		const tail = await this.deps.readTail(cursor);
 		if (tail.turns.length === 0) return { ran: false, reason: "nothing new" };
 
@@ -93,7 +101,7 @@ export class ConsolidationRunner {
 			clock: this.deps.clock(),
 			memory,
 			transcript: tail.turns,
-			projectLabel: this.deps.projectLabel,
+			label: this.deps.label,
 		});
 
 		await this.deps.agent.run({
@@ -112,7 +120,7 @@ export class ConsolidationRunner {
 		// Only a pass that was not cut short moves the cursor. Re-reading is
 		// absorbed by the guarded write; skipping is not recoverable.
 		if (signal?.aborted !== true && tail.cursor !== undefined) {
-			await this.deps.cursors.set(this.deps.projectId, tail.cursor);
+			await this.deps.cursors.set(this.deps.cursorKey, tail.cursor);
 		}
 		return { ran: true, steps: 0 };
 	}

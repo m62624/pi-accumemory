@@ -23,7 +23,8 @@ export interface PassContext {
 	memory: string;
 	/** The unprocessed tail of the transcript. */
 	transcript: readonly Turn[];
-	projectLabel: string;
+	/** What the pass is reviewing: a project, or a directory that is not one. */
+	label: string;
 }
 
 /** The opening message of a pass. */
@@ -32,7 +33,7 @@ export function passPrompt(context: PassContext): string {
 	return [
 		context.clock,
 		"",
-		`You are reviewing what happened in ${context.projectLabel} while it was quiet, ` +
+		`You are reviewing what happened in ${context.label} while it was quiet, ` +
 			"and curating your own long-term memory from it. Nobody is waiting for a reply; " +
 			"there is no answer to write. The only things that count are the memory calls " +
 			"you make.",
