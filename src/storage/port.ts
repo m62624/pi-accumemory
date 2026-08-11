@@ -173,6 +173,22 @@ export interface ScannedFact {
 export interface ScanFilter {
 	/** Keep only facts carrying all of these. */
 	tags?: string[];
+	/**
+	 * Start at this fact id rather than at the beginning.
+	 *
+	 * Ids are assigned in order and never reused, so this is also "start at
+	 * this point in time".
+	 */
+	from?: number;
+	/**
+	 * Stop after this many, without reading the rest.
+	 *
+	 * Not a nicety at any real size. The engine pages at 128 facts and answers
+	 * a page in 0.3 ms; walking to the end of ten thousand facts costs 23 ms
+	 * and builds ten thousand JavaScript objects to throw all but twelve of
+	 * them away. Anything that wants a window must say so.
+	 */
+	limit?: number;
 }
 
 /** Read verbs. A read-only handle offers exactly these. */

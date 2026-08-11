@@ -304,11 +304,17 @@ async function scanVia(
 	filter: ScanFilter,
 ): Promise<ScannedFact[]> {
 	const wanted = filter.tags ?? [];
+	const limit = filter.limit ?? Number.POSITIVE_INFINITY;
 	const found: ScannedFact[] = [];
-	let cursor: number | undefined;
+	// `exportPage` yields open facts in id order, 128 at a time, and a page can
+	// be empty and still carry a cursor - ids are burned by `forget`, so the
+	// space is sparse. Hence a loop rather than one call, and an early exit
+	// rather than a walk to the end.
+	let cursor: number | undefined = filter.from;
 	do {
 		const page = await db.exportPage(cursor);
 		for (const fact of page.facts) {
+			if (found.length >= limit) return found;
 			if (!wanted.every((tag) => fact.tags.includes(tag))) continue;
 			found.push({
 				id: fact.id,
@@ -317,6 +323,7 @@ async function scanVia(
 				metadata: fact.metadata,
 			});
 		}
+		if (found.length >= limit) return found;
 		cursor = page.nextCursor;
 	} while (cursor !== undefined);
 	return found;

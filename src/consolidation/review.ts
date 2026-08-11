@@ -39,6 +39,8 @@ export interface ReviewContext {
 	/** The current time: half of these judgements are about whether a date passed. */
 	clock: string;
 	windows: readonly ReviewWindow[];
+	/** Live facts across every memory, so the window has a sense of scale. */
+	held: number;
 }
 
 /** The opening message of a review phase. */
@@ -53,6 +55,10 @@ export function reviewPrompt(context: ReviewContext): string {
 		"These are NOT search results and nothing here was asked about. They are simply " +
 			"the oldest entries still stored, shown to you because nothing else would ever " +
 			"bring them up again.",
+		"",
+		`Your memory holds ${context.held} ${context.held === 1 ? "fact" : "facts"} in total. ` +
+			"You are seeing a window of them; the next pass continues from where this one " +
+			"stops, so there is no need to hurry and nothing is lost by leaving the rest.",
 		"",
 		context.instructions,
 		"",

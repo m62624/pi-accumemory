@@ -159,7 +159,7 @@ is already saved.
 | `consolidation.maxTranscriptChars` | `20000` | how much transcript one pass reads. A cursor records how far it got, so a long session is digested by several small passes |
 | `consolidation.promoteToCommon` | `true` | lets the pass move a fact confirmed in several projects into the shared memory |
 | `consolidation.review.enabled` | `true` | the pass's **second phase**: re-reading the oldest stored facts. See below |
-| `consolidation.review.sampleSize` | `12` | how many old facts one pass looks at, per memory |
+| `consolidation.review.sampleSize` | `12` | the review window: how many old facts one pass looks at, per memory. A **floor** — see below |
 | `consolidation.maintain` | `true` | reclaim the disk of forgotten facts at the end of a pass |
 
 ## The second phase — `consolidation.review.*`
@@ -181,6 +181,34 @@ budget, so the transcript phase cannot eat the budget before it starts.
 Nothing here deletes on a rule. The model decides; a fact is dropped only when
 its date has passed, it duplicates another, or it is contradicted. "Old" is not
 a reason, and the instruction says so.
+
+### On a memory that is not small
+
+`sampleSize` is a floor, not the window. A fixed window does not survive a
+memory that has been running for a year: twelve facts a pass walks ten thousand
+of them in 830 passes, which at a handful of idle passes a day is most of a year
+to come round once — and the facts most likely to have gone stale are exactly
+the ones such a memory would review least.
+
+So the window grows with what the memory holds, to keep a full cycle at roughly
+a hundred passes, with a ceiling of eight times `sampleSize` because the window
+ends up in a prompt:
+
+| live facts | window | passes to cycle |
+|---|---|---|
+| 100 | 12 | 9 |
+| 1 000 | 12 | 84 |
+| 10 000 | 96 | 105 |
+| 100 000 | 96 | 1 042 |
+
+The last row is the ceiling doing its job rather than a failure: at a hundred
+thousand facts nothing bounded reviews everything quickly, and a prompt holding
+a thousand facts would be worse than a slow cycle. Raising `sampleSize` raises
+both the floor and the ceiling.
+
+The window is also *fetched* as a window. The engine pages at 128 facts and
+answers a page in 0.3 ms; reading to the end of ten thousand facts costs 23 ms
+and builds ten thousand objects to throw all but the window away.
 
 ## Reclaiming disk — `consolidation.maintain`
 

@@ -437,3 +437,48 @@ describe("reclaiming space", () => {
 		await expect(controller.maintain()).resolves.toBeUndefined();
 	});
 });
+
+describe("the review window", () => {
+	it("asks the memory for a window, not for everything", async () => {
+		// Measured on the engine: walking to the end of ten thousand facts costs
+		// 23 ms and builds ten thousand JavaScript objects to throw all but
+		// twelve away; the page holding those twelve costs 0.3 ms.
+		const { controller, project } = build();
+		if (project === undefined) throw new Error("this build has a project");
+		const asked: unknown[] = [];
+		const scan = project.scan.bind(project);
+		project.scan = async (filter) => {
+			asked.push(filter);
+			return scan(filter);
+		};
+
+		await controller.oldestFacts("project", 40, 12);
+		expect(asked).toEqual([{ from: 40, limit: 12 }]);
+	});
+
+	it("returns them oldest first, starting at the id it was given", async () => {
+		const { controller } = build();
+		for (const text of [
+			"the cache is off because it raced with the warmup",
+			"tests run under vitest rather than jest",
+			"biome formats this repository with tabs",
+		]) {
+			await controller.remember({ text });
+		}
+		expect(
+			(await controller.oldestFacts("project", 0, 2)).map((f) => f.id),
+		).toEqual([0, 1]);
+		expect(
+			(await controller.oldestFacts("project", 1, 9)).map((f) => f.id),
+		).toEqual([1, 2]);
+	});
+
+	it("counts live facts, so the window is sized against what is really there", async () => {
+		const { controller } = build();
+		for (const text of ["fact one here", "fact two here", "fact three here"]) {
+			await controller.remember({ text });
+		}
+		await controller.forget([0], "project");
+		expect(await controller.liveFactCount("project")).toBe(2);
+	});
+});

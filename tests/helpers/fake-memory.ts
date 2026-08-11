@@ -228,14 +228,24 @@ export class FakeMemory implements WritableMemory {
 	 * recall would make every caller that gets this wrong pass its tests.
 	 */
 	async scan(filter: ScanFilter = {}): Promise<ScannedFact[]> {
+		this.throwIfArmed();
 		const wanted = filter.tags ?? [];
+		const from = filter.from ?? 0;
+		const limit = filter.limit ?? Number.POSITIVE_INFINITY;
+		// Ordered by id and windowed, exactly as the engine's paged export is:
+		// a fake that returned everything would hide the cost the real one has.
 		return this.live()
-			.filter((fact) => wanted.every((tag) => fact.tags.includes(tag)))
+			.filter(
+				(fact) =>
+					fact.id >= from && wanted.every((tag) => fact.tags.includes(tag)),
+			)
+			.sort((a, b) => a.id - b.id)
+			.slice(0, limit === Number.POSITIVE_INFINITY ? undefined : limit)
 			.map((fact) => ({
 				id: fact.id,
 				text: fact.text,
-				tags: [...fact.tags],
-				metadata: { ...fact.metadata },
+				tags: fact.tags,
+				metadata: fact.metadata,
 			}));
 	}
 

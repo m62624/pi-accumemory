@@ -31,6 +31,7 @@ import { ConsolidationLedger } from "./ledger.ts";
 import { passMemoryView, passPrompt, passTail } from "./pass.ts";
 import { nextCursor, type ReviewWindow, reviewPrompt } from "./review.ts";
 import type { TranscriptCursor } from "./transcript.ts";
+import { reviewWindowSize } from "./window.ts";
 
 /** The name that ends a pass. Registered only while one is running. */
 export const DONE_TOOL = "longterm_done";
@@ -163,11 +164,16 @@ export class ConsolidationRunner {
 
 		const from = await this.deps.reviewCursor.get(this.deps.cursorKey);
 		const windows: ReviewWindow[] = [];
+		let held = 0;
 		for (const scope of this.deps.controller.reviewableScopes()) {
+			// Sized against what this memory holds, so a full cycle stays at
+			// roughly a hundred passes whatever that is - see `window.ts`.
+			const live = await this.deps.controller.liveFactCount(scope);
+			held += live;
 			const facts = await this.deps.controller.oldestFacts(
 				scope,
 				from,
-				settings.sampleSize,
+				reviewWindowSize(settings.sampleSize, live),
 			);
 			if (facts.length > 0) {
 				windows.push({ scope, label: this.deps.scopeLabel(scope), facts });
@@ -186,6 +192,7 @@ export class ConsolidationRunner {
 				instructions: await this.deps.instructions.read("review"),
 				clock: this.deps.clock(),
 				windows,
+				held,
 			}),
 			ledger,
 			signal,

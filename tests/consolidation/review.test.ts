@@ -30,6 +30,7 @@ describe("reviewPrompt", () => {
 			instructions: "the rules",
 			clock: "[Now: X]",
 			windows: [window([0, 1])],
+			held: 2,
 		});
 		expect(prompt).toMatch(/not search results/i);
 		expect(prompt).toMatch(/nobody is waiting for a reply/i);
@@ -47,6 +48,7 @@ describe("reviewPrompt", () => {
 					facts: [{ id: 3, text: "prefers Rust", tags: [] }],
 				},
 			],
+			held: 2,
 		});
 		expect(prompt).toContain('the ids below are scope: "project"');
 		expect(prompt).toContain('the ids below are scope: "user"');
@@ -60,6 +62,7 @@ describe("reviewPrompt", () => {
 			instructions: "",
 			clock: "[Now: X]",
 			windows: [window([0])],
+			held: 1,
 		});
 		expect(prompt).toMatch(/most will be fine and need nothing/i);
 	});
