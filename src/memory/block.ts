@@ -93,7 +93,7 @@ export function memoryManifest(scopes: readonly ManifestScope[]): string {
 				.filter((tag) => tag.count > 0)
 				.map((tag) => `${tag.name}(${tag.count})`)
 				.join(" ");
-			const counted = `${scope.label}: ${scope.facts} facts`;
+			const counted = `${scope.label}: ${scope.facts} ${scope.facts === 1 ? "fact" : "facts"}`;
 			return tags === "" ? counted : `${counted} - ${tags}`;
 		});
 	return parts.join(" | ");

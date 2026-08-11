@@ -167,9 +167,23 @@ export class FakeMemory implements WritableMemory {
 		const k = input.k !== undefined && input.k > 0 ? input.k : scored.length;
 		const selected = scored.slice(0, k);
 		return {
-			rendered: selected
-				.map(({ fact }) => `[f${fact.id}] ${fact.text}`)
-				.join("\n"),
+			// The real engine renders a heading and one BULLET per fact:
+			// `## memory\n- [f0] entity: text (2026-08; active) #tags`. The
+			// leading dash is not decoration - `dropVisible` uses it to tell a
+			// fact line from a heading, so a fake that omitted it made every
+			// block look as though it held no facts at all.
+			rendered:
+				selected.length === 0
+					? ""
+					: [
+							"## memory",
+							...selected.map(({ fact }) => {
+								const subject =
+									fact.entity === undefined ? "" : `${fact.entity}: `;
+								const tags = fact.tags.map((tag) => ` #${tag}`).join("");
+								return `- [f${fact.id}] ${subject}${fact.text}${tags}`;
+							}),
+						].join("\n"),
 			facts: selected.map(({ fact, score }) => ({
 				id: fact.id,
 				score,

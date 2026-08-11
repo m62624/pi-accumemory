@@ -19,9 +19,14 @@ export type PathFlavour = Pick<
 	"dirname" | "join" | "resolve"
 >;
 
-/** Just enough filesystem to answer "does this exist". */
+/**
+ * Just enough filesystem to answer "does this exist".
+ *
+ * Either shape is accepted so the real async `FileOps` satisfies it directly,
+ * with no sync bridge to maintain, while a test can hand over a plain set.
+ */
 export interface ExistenceCheck {
-	exists(candidate: string): boolean;
+	exists(candidate: string): boolean | Promise<boolean>;
 }
 
 /**
@@ -60,17 +65,17 @@ export interface DetectOptions {
  * Nearest, not outermost: a package inside a monorepo is its own project,
  * because its conventions and its gotchas are not the root's.
  */
-export function detectProjectRoot(
+export async function detectProjectRoot(
 	from: string,
 	options: DetectOptions,
-): string | undefined {
+): Promise<string | undefined> {
 	const { fs, flavour } = options;
 	const markers = options.markers ?? PROJECT_MARKERS;
 
 	let current = from;
 	for (;;) {
 		for (const marker of markers) {
-			if (fs.exists(flavour.join(current, marker))) return current;
+			if (await fs.exists(flavour.join(current, marker))) return current;
 		}
 		const parent = flavour.dirname(current);
 		// `dirname` of a root is that root; that fixed point is the stop
