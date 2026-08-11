@@ -50,6 +50,20 @@ export interface GuardedRememberResult {
 	status: "stored" | "blocked";
 	id?: number;
 	similar: SimilarFact[];
+	/**
+	 * Whether the engine's duplicate detector had anything to compare against.
+	 *
+	 * `false` means the fact was written with no guard at all. The detector is
+	 * scoped to the fact's entity and walks that entity's recent live facts, so
+	 * a write naming no entity has an empty candidate set and cannot be
+	 * refused - now or after any number of later writes.
+	 *
+	 * This extension always names an entity, so `false` here is a defect on our
+	 * side rather than a caller's choice, and it is the exact defect that once
+	 * let one sentence be stored six times. It is surfaced rather than ignored
+	 * for that reason. Available from plugmem 0.10.0.
+	 */
+	checked: boolean;
 }
 
 export interface RecallInput {

@@ -373,7 +373,20 @@ export class MemoryController {
 			entity,
 			tags: input.tags ?? [],
 			vocabulary: await this.vocabulary(memory),
-			notes: suggestions,
+			// `checked: false` means the engine had no candidate set and wrote
+			// without any duplicate check. Every write from here names an
+			// entity, so this can only happen if that stops being true - and
+			// the last time it was not true, one sentence was stored six times
+			// before anybody noticed. Reported rather than swallowed for
+			// exactly that reason: silence is what made it expensive.
+			notes: stored.checked
+				? suggestions
+				: [
+						...suggestions,
+						"NOTE: this was stored without a duplicate check, so the memory may now " +
+							"hold it twice. Ask the memory for it before storing anything like it " +
+							"again, and tell the user this extension has a defect worth reporting.",
+					],
 		};
 		return modelReport(this.lastWrite);
 	}

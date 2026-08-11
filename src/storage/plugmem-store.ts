@@ -60,6 +60,7 @@ export class PlugmemStore implements WritableMemory {
 			status: outcome.status,
 			id: outcome.outcome?.id,
 			similar: outcome.similar,
+			checked: outcome.checked,
 		};
 	}
 

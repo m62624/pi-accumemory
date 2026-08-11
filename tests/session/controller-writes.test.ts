@@ -300,3 +300,26 @@ describe("what a write tells the model", () => {
 		expect(controller.takeLastWrite()).toBeUndefined();
 	});
 });
+
+describe("when the engine reports it could not check", () => {
+	it("says so, instead of letting it pass as a clean write", async () => {
+		// `checked: false` means the engine had no candidate set and wrote with
+		// no duplicate check at all. Every write this controller makes names an
+		// entity, so it cannot happen today - and the last time it could, one
+		// sentence was stored six times before anybody noticed. The point of
+		// surfacing it is that silence is what made that expensive.
+		const { controller, project } = build();
+		if (project === undefined) throw new Error("this build has a project");
+		project.guardsNothing = true;
+
+		const answer = await controller.remember({ text: "a durable fact" });
+		expect(answer).toMatch(/without a duplicate check/i);
+		expect(answer).toMatch(/may now hold it twice/i);
+	});
+
+	it("stays quiet on an ordinary write", async () => {
+		const { controller } = build();
+		const answer = await controller.remember({ text: "a durable fact" });
+		expect(answer).not.toMatch(/without a duplicate check/i);
+	});
+});

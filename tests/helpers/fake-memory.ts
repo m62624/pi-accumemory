@@ -64,6 +64,17 @@ export class FakeMemory implements WritableMemory {
 	private readonly now: () => number;
 	private readonly duplicateThreshold: number;
 
+	/**
+	 * Force every guarded write to report that it checked nothing.
+	 *
+	 * The condition it stands in for cannot be produced through this
+	 * controller any more - every write it makes names an entity - and that
+	 * is precisely why it needs a switch: the branch handling the engine's
+	 * `checked: false` would otherwise be unreachable and untested, right up
+	 * until the day something stops naming an entity again.
+	 */
+	guardsNothing = false;
+
 	constructor(options: FakeMemoryOptions = {}) {
 		this.now = options.now ?? (() => Date.now());
 		this.duplicateThreshold = options.duplicateThreshold ?? 0.6;
@@ -97,10 +108,17 @@ export class FakeMemory implements WritableMemory {
 
 	async rememberGuarded(input: RememberInput): Promise<GuardedRememberResult> {
 		this.throwIfArmed();
-		const similar = this.similarTo(input, -1);
-		if (similar.length > 0) return { status: "blocked", similar };
+		// Mirrors the engine, including the part that is easy to assume away:
+		// the detector is scoped to the fact's entity, so a write naming none
+		// has no candidate set and cannot be refused. A fake that quietly
+		// compared entity-less facts to each other would pass the very tests
+		// that exist because the real engine does not.
+		const checked = !this.guardsNothing && input.entity !== undefined;
+		const similar = checked ? this.similarTo(input, -1) : [];
+		if (similar.length > 0)
+			return { status: "blocked", similar, checked: true };
 		const stored = await this.remember(input);
-		return { status: "stored", id: stored.id, similar: [] };
+		return { status: "stored", id: stored.id, similar: [], checked };
 	}
 
 	async revise(id: number, input: RememberInput): Promise<RememberResult> {
@@ -293,7 +311,12 @@ export class FakeMemory implements WritableMemory {
 	private similarTo(input: RememberInput, ignoreId: number): SimilarFact[] {
 		const mine = tokenise(input.text);
 		return this.live()
-			.filter((fact) => fact.entity === input.entity && fact.id !== ignoreId)
+			.filter(
+				(fact) =>
+					input.entity !== undefined &&
+					fact.entity === input.entity &&
+					fact.id !== ignoreId,
+			)
 			.slice(-32)
 			.map((fact) => ({
 				id: fact.id,

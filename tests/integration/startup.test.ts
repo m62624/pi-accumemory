@@ -354,6 +354,23 @@ describe("startSession", () => {
 		}
 	});
 
+	it("never lets the engine write without a duplicate check", async () => {
+		// plugmem's detector is scoped to the fact's entity, and a write naming
+		// none is stored with no check at all - which is how one sentence ended
+		// up stored six times. Since 0.10.0 the engine says which of the two
+		// happened, so this asserts the thing that actually protects us: every
+		// write from here names an entity, on both scopes.
+		const session = await start(project);
+		for (const scope of ["project", "user"] as const) {
+			const answer = await session.controller.remember({
+				text: `a durable fact about ${scope}`,
+				scope,
+			});
+			expect(answer, scope).toMatch(/Stored \[f/);
+			expect(answer, scope).not.toMatch(/without a duplicate check/i);
+		}
+	});
+
 	it("guards a repeated fact about the user the same way", async () => {
 		const session = await start(project);
 		const text = "prefers Rust for systems work";
