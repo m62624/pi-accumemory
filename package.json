@@ -1,0 +1,59 @@
+{
+	"name": "pi-accumemory",
+	"version": "0.1.0",
+	"description": "Long-term accumulative memory for pi coding agents: one database per project plus a shared one about you, persisted across sessions and projects",
+	"homepage": "https://github.com/m62624/pi-accumemory#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/m62624/pi-accumemory.git"
+	},
+	"bugs": {
+		"url": "https://github.com/m62624/pi-accumemory/issues"
+	},
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"memory",
+		"plugmem",
+		"local-ai"
+	],
+	"type": "module",
+	"main": "src/index.ts",
+	"files": [
+		"src/**/*.ts",
+		"!src/**/*.test.ts",
+		"src/**/*.md",
+		"README.md",
+		"SETTINGS.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"license": "MIT",
+	"scripts": {
+		"build": "tsc --noEmit",
+		"check": "biome check --error-on-warnings .",
+		"ci": "npm run check && npm run build && npm test && npm pack --dry-run",
+		"coverage": "vitest run --coverage",
+		"format": "biome format --write .",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.7",
+		"@earendil-works/pi-coding-agent": "0.84.1",
+		"@types/node": "^26.0.0",
+		"@vitest/coverage-v8": "^4.1.10",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.10"
+	},
+	"dependencies": {
+		"plugmem": "^0.9.0"
+	}
+}

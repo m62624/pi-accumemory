@@ -1,0 +1,15 @@
+node_modules/
+dist/
+
+# Coverage artefacts are derived from the code, never code. plugmem's own repo
+# committed tarpaulin-report.html / cobertura.xml / lcov.info and they grow with
+# every run; this file exists in the first commit so that cannot happen here.
+coverage/
+*.lcov
+lcov.info
+cobertura.xml
+*-report.html
+.vitest/
+
+*.tgz
+.DS_Store

@@ -1,0 +1,24 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"rootDir": "./src",
+		// pi loads extension sources as TypeScript directly - `main` is
+		// `src/index.ts` and `files` ships `src/**/*.ts`. There is no bundle
+		// step, so imports name the real file, extension and all, and this
+		// compiler run exists purely to typecheck.
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"types": ["node"]
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["dist", "tests", "node_modules", "coverage"]
+}

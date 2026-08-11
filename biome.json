@@ -1,0 +1,32 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
+	"formatter": {
+		"enabled": true
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended"
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		}
+	},
+	"files": {
+		"includes": [
+			"**",
+			"!!**/.pi",
+			"!!**/.claude",
+			"!!**/dist",
+			"!!**/coverage"
+		],
+		"ignoreUnknown": false
+	},
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	}
+}
