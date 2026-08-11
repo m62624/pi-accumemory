@@ -134,3 +134,36 @@ describe("RefreshPolicy ask hint", () => {
 		expect(p.askHintDue()).toBe(false);
 	});
 });
+
+describe("a memory that changed under the block", () => {
+	it("makes the block due again", () => {
+		// The one case where holding the block steady shows the model something
+		// FALSE. Watched live: it forgot [f3], looked at the block still
+		// listing [f3], concluded its own tool had not worked, and repeated the
+		// call five more times. A stale block does not waste a turn - it
+		// teaches the model that its tools do nothing.
+		const p = policy({});
+		p.takeDue();
+		expect(p.takeDue()).toBeUndefined();
+		p.noteMemoryChanged();
+		expect(p.takeDue()).toBe("memory_changed");
+	});
+
+	it("loses to a new user message, which is the stronger signal", () => {
+		// Both are pending, one block is built: the user's words decide what to
+		// retrieve, and the write is reflected either way.
+		const p = policy({});
+		p.takeDue();
+		p.noteMemoryChanged();
+		p.noteUserMessage();
+		expect(p.takeDue()).toBe("user_message");
+	});
+
+	it("beats the mid-loop tool budget", () => {
+		const p = policy({ afterToolCalls: 1 });
+		p.takeDue();
+		p.noteToolCall();
+		p.noteMemoryChanged();
+		expect(p.takeDue()).toBe("memory_changed");
+	});
+});

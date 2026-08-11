@@ -378,6 +378,40 @@ describe("startSession", () => {
 		}
 	});
 
+	it("stops showing a fact in the block once it is forgotten", async () => {
+		// The failure this closes, end to end on the real engine: the block is
+		// held steady between events to protect the prompt cache, which is
+		// right - except after a write, when steady means showing facts that
+		// no longer exist. A model reading its own deletion still listed
+		// concludes its tools do nothing, and repeats.
+		const session = await start(project);
+		const turns = [{ role: "user" as const, text: "what about the cache" }];
+
+		const stored = await session.controller.remember({
+			text: "the cache is off because it raced with the warmup task",
+		});
+		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
+		session.controller.noteUserMessage();
+		expect(await session.controller.tail(turns)).toContain("warmup");
+
+		expect(await session.controller.forget([id], "project")).toMatch(/Forgot/);
+		// No user message in between: this is the middle of a tool loop, which
+		// is exactly where it used to go stale.
+		expect(await session.controller.tail(turns)).not.toContain("warmup");
+	});
+
+	it("clears a list of duplicates in one call", async () => {
+		const session = await start(project);
+		const ids: number[] = [];
+		for (const text of ["alpha fact here", "beta fact here", "gamma fact"]) {
+			const stored = await session.controller.remember({ text, scope: "user" });
+			ids.push(Number(/\[f(\d+)\]/.exec(stored)?.[1]));
+		}
+		const answer = await session.controller.forget(ids, "user");
+		expect(answer).toMatch(/Forgot/);
+		for (const id of ids) expect(answer).toContain(`[f${id}]`);
+	});
+
 	it("guards a repeated fact about the user the same way", async () => {
 		const session = await start(project);
 		const text = "prefers Rust for systems work";

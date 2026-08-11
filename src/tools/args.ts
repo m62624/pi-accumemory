@@ -39,6 +39,27 @@ export function num(value: unknown, fallback = 0): number {
 	return optNum(value) ?? fallback;
 }
 
+/**
+ * A list of fact ids, however the model chose to express it.
+ *
+ * Both spellings are accepted because both will arrive: a schema is a request,
+ * not a guarantee, and a tool that takes `ids` still gets `id` from a model
+ * that has seen one before. Non-numeric members are dropped rather than
+ * coerced - `Number("f3")` is `NaN`, and a `NaN` id addresses nothing.
+ */
+export function numArray(list: unknown, single: unknown): number[] {
+	const out: number[] = [];
+	if (Array.isArray(list)) {
+		for (const item of list) {
+			const value = optNum(item);
+			if (value !== undefined) out.push(value);
+		}
+	}
+	const one = optNum(single);
+	if (one !== undefined && !out.includes(one)) out.push(one);
+	return out;
+}
+
 /** An optional array of strings, with non-string members stringified. */
 export function strArray(value: unknown): string[] | undefined {
 	return Array.isArray(value) ? value.map((item) => str(item)) : undefined;

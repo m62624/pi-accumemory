@@ -23,6 +23,7 @@ import type { MemoryController } from "../session/controller.ts";
 import {
 	defined,
 	num,
+	numArray,
 	optNum,
 	optScope,
 	optStr,
@@ -264,18 +265,26 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				`${WHOSE} Drop a fact that was wrong, or a dated one whose date has passed ` +
 				"with nothing suggesting it recurs. Keep the durable pattern behind a passed " +
 				'event: "plays that game on weekday evenings" outlives "plays at 20:30 on ' +
-				'Saturday". REQUIRES scope: the two memories number their facts separately, ' +
-				"so [f3] means nothing without saying which of them you read it in.",
+				'Saturday". Takes one id or several: pass `ids` when you are clearing a ' +
+				"list, which is one call instead of one per fact. REQUIRES scope - the two " +
+				"memories number their facts separately, so [f3] means nothing without " +
+				"saying which of them you read it in.",
 			parameters: {
 				type: "object",
 				properties: {
 					id: { type: "number", description: "The number inside [fN]." },
+					ids: {
+						type: "array",
+						items: { type: "number" },
+						description:
+							"Several such numbers, dropped in one call. Use this for a list.",
+					},
 					scope: ID_SCOPE_PARAM,
 				},
-				required: ["id", "scope"],
+				required: ["scope"],
 			},
 			run: async (args) =>
-				controller.forget(num(args.id), optScope(args.scope)),
+				controller.forget(numArray(args.ids, args.id), optScope(args.scope)),
 		},
 		{
 			name: "longterm_tags",

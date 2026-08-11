@@ -26,12 +26,14 @@ import type { RefreshSettings } from "../settings/defaults.ts";
 export type RefreshReason =
 	| "session_start"
 	| "user_message"
+	| "memory_changed"
 	| "compact"
 	| "tool_budget";
 
 /** Higher wins when two reasons are pending; only one block is ever computed. */
 const PRIORITY: Record<RefreshReason, number> = {
-	user_message: 3,
+	user_message: 4,
+	memory_changed: 3,
 	compact: 2,
 	session_start: 1,
 	tool_budget: 0,
@@ -62,6 +64,24 @@ export class RefreshPolicy {
 
 	noteCompact(): void {
 		if (this.settings.onCompact) this.raise("compact");
+	}
+
+	/**
+	 * The memory itself changed, so what the block says is no longer true.
+	 *
+	 * This is not a fourth flavour of "the topic moved" - it is the one case
+	 * where leaving the block alone shows the model something that is FALSE.
+	 * It was missing, and the cost was watched live: the model forgot [f3],
+	 * looked at the block still listing [f3], concluded its own tool had not
+	 * worked, and repeated the call five more times. A stale block does not
+	 * merely waste a turn; it teaches the model that its tools do nothing.
+	 *
+	 * The stability argument does not apply here. Holding the block steady
+	 * between events is about not re-querying for the same question - never
+	 * about continuing to display facts that have just been deleted.
+	 */
+	noteMemoryChanged(): void {
+		this.raise("memory_changed");
 	}
 
 	noteToolCall(): void {

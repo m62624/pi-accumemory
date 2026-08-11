@@ -19,6 +19,7 @@ import {
 import { WriteNudge } from "../memory/nudge.ts";
 import { progressQuery, recallQuery } from "../memory/query.ts";
 import { RefreshPolicy } from "../memory/refresh.ts";
+import { RepeatGuard } from "../memory/repeat-guard.ts";
 import { suggestionText, suggestTag } from "../memory/tag-suggest.ts";
 import type { Turn } from "../memory/transcript-view.ts";
 import {
@@ -89,6 +90,7 @@ export class MemoryController {
 	private readonly refresh: RefreshPolicy;
 	private readonly nudge: WriteNudge;
 	private readonly askGuard = new AskGuard();
+	private readonly repeatGuard = new RepeatGuard();
 	private readonly now: () => Date;
 
 	/** The last computed block, held between refresh events so the tail is stable. */
@@ -97,6 +99,14 @@ export class MemoryController {
 	private manifestShown = false;
 	/** Detail of the last successful write, for the terminal renderer. */
 	private lastWrite: WriteReport | undefined;
+	/**
+	 * `scope:id` of every fact this session has dropped.
+	 *
+	 * Kept so a second attempt on the same id can be answered with "you did
+	 * that, and it worked" rather than an ambiguity the model resolves as "my
+	 * tools do not work".
+	 */
+	private readonly forgotten = new Set<string>();
 
 	constructor(private readonly deps: ControllerDeps) {
 		this.refresh = new RefreshPolicy(deps.settings.memory.refresh);
@@ -112,6 +122,7 @@ export class MemoryController {
 		this.nudge.noteMessage();
 		// A new request is a new run: the same question may be fair again.
 		this.askGuard.reset();
+		this.repeatGuard.reset();
 	}
 
 	noteToolCall(name: string): void {
@@ -330,6 +341,18 @@ export class MemoryController {
 
 	// -- writes ---------------------------------------------------------------
 
+	/**
+	 * One place for "the memory just changed".
+	 *
+	 * Two things follow from a write and they are easy to do separately and
+	 * then forget one: the write reminder resets, and the block above the next
+	 * reply stops being true. The second is the one that was missing.
+	 */
+	private noteWrote(): void {
+		this.nudge.noteWrite();
+		this.refresh.noteMemoryChanged();
+	}
+
 	async remember(input: RememberInputForModel): Promise<string> {
 		const scope = input.scope ?? "project";
 		if (scope === "both") return this.noProjectMessage();
@@ -343,7 +366,7 @@ export class MemoryController {
 			entity,
 			...defined({ tags: input.tags }),
 		});
-		this.nudge.noteWrite();
+		this.noteWrote();
 
 		if (stored.status === "blocked") {
 			// The refusal names WHAT it collided with, not just the ids. A bare
@@ -468,19 +491,57 @@ export class MemoryController {
 		if ((await memory.get(id)) === null)
 			return this.missing(id, scope, "revise");
 		const stored = await memory.revise(id, { text, ...defined({ tags }) });
-		this.nudge.noteWrite();
+		this.noteWrote();
 		return `Revised [f${id}] into [f${stored.id}] in ${this.label(scope)}. The old version is kept as history.`;
 	}
 
-	async forget(id: number, scope: Scope | undefined): Promise<string> {
+	/**
+	 * Forgets one fact or several.
+	 *
+	 * Several, because the job that produces a list of ids - clearing
+	 * duplicates - is the job this is for, and one-at-a-time made it
+	 * unreachable in practice. Watched live: asked to drop four duplicates,
+	 * the model announced "all of them in parallel" and then emitted a single
+	 * call, six times over, because a single call was all the tool offered.
+	 */
+	async forget(
+		ids: readonly number[],
+		scope: Scope | undefined,
+	): Promise<string> {
+		if (ids.length === 0) return "No ids given: pass the number inside [fN].";
 		if (scope === undefined || scope === "both")
-			return whichMemory("forget", id);
+			return whichMemory("forget", ids[0] ?? 0);
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
-		const dropped = await memory.forget(id);
-		this.nudge.noteWrite();
-		if (dropped) return `Forgot [f${id}] from ${this.label(scope)}.`;
-		return this.missing(id, scope, "forget");
+
+		const dropped: number[] = [];
+		const absent: number[] = [];
+		for (const id of ids) {
+			if (await memory.forget(id)) dropped.push(id);
+			else absent.push(id);
+		}
+		if (dropped.length > 0) {
+			this.noteWrote();
+			for (const id of dropped) {
+				this.forgotten.add(`${scope}:${id}`);
+				this.repeatGuard.noteSuccess(`forget:${scope}:${id}`);
+			}
+		}
+
+		const said: string[] = [];
+		if (dropped.length > 0) {
+			said.push(
+				`Forgot ${dropped.map((id) => `[f${id}]`).join(", ")} from ${this.label(scope)}.`,
+			);
+		}
+		for (const id of absent) {
+			// The runtime is the only thing that can see a repeat: from inside
+			// the model, the third identical attempt looks exactly like the
+			// first, because everything it can read is unchanged.
+			const repeated = this.repeatGuard.noteFailure(`forget:${scope}:${id}`);
+			said.push(repeated ?? (await this.missing(id, scope, "forget")));
+		}
+		return said.join("\n");
 	}
 
 	/**
@@ -501,11 +562,22 @@ export class MemoryController {
 		const elsewhere = this.readableScope(other);
 		const found = elsewhere === undefined ? null : await elsewhere.get(id);
 		const head = `There is no live fact [f${id}] in ${this.label(scope)}.`;
+		if (this.forgotten.has(`${scope}:${id}`)) {
+			// The precise thing that went wrong last time, said precisely. "It
+			// may have been forgotten already" is true and useless: the model
+			// read it, looked at a block that still listed the fact, and
+			// concluded its own tool did nothing.
+			return (
+				`${head} YOU forgot it earlier in this session and it worked - this is the ` +
+				"same fact, already gone. Nothing here needs doing; move on to the next " +
+				"thing the user asked for."
+			);
+		}
 		if (found === null) {
 			return (
-				`${head} It may have been forgotten already, or the number may come from ` +
-				"an older block - re-read the memory block above before trying again, and " +
-				"do not repeat this call unchanged."
+				`${head} It was never there, or it was forgotten in an earlier session. ` +
+				"Do not repeat this call: the answer will not change. If you are working " +
+				"from a list of ids, go on to the next one."
 			);
 		}
 		return (

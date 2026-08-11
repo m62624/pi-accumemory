@@ -179,3 +179,47 @@ describe("tool arguments", () => {
 		expect(project.live()[0]?.tags).toEqual(["tooling"]);
 	});
 });
+
+describe("the ids a forget can arrive with", () => {
+	it("accepts a list, a single id, or both", async () => {
+		const { call, project } = build();
+		for (const text of ["fact one", "fact two", "fact three"]) {
+			await call("longterm_remember", { text });
+		}
+		// `ids` and `id` together: a model that has seen the single-id form
+		// before will send both, and dropping either would lose a fact.
+		const answer = await call("longterm_forget", {
+			ids: [0, 1],
+			id: 2,
+			scope: "project",
+		});
+		expect(answer).toContain("[f0]");
+		expect(answer).toContain("[f2]");
+		expect(project.live()).toHaveLength(0);
+	});
+
+	it("drops members that are not numbers rather than coercing them", async () => {
+		// `Number("f3")` is NaN, and a NaN id addresses nothing.
+		const { call } = build();
+		await call("longterm_remember", { text: "a durable fact" });
+		const answer = await call("longterm_forget", {
+			ids: ["f0", null, 0],
+			scope: "project",
+		});
+		expect(answer).toBe("Forgot [f0] from this project (app).");
+	});
+
+	it("says what it needs when the list is empty", async () => {
+		const { call } = build();
+		expect(
+			await call("longterm_forget", { ids: [], scope: "project" }),
+		).toMatch(/no ids given/i);
+	});
+
+	it("still asks which memory when a list arrives without one", async () => {
+		const { call } = build();
+		expect(await call("longterm_forget", { ids: [3, 4] })).toMatch(
+			/which memory/i,
+		);
+	});
+});

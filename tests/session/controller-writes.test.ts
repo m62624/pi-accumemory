@@ -74,7 +74,7 @@ describe("MemoryController.revise", () => {
 		expect(await controller.revise(0, "x", "project")).toMatch(
 			/not a project/i,
 		);
-		expect(await controller.forget(0, "project")).toMatch(/not a project/i);
+		expect(await controller.forget([0], "project")).toMatch(/not a project/i);
 		expect(await controller.listTags()).toMatch(/not a project/i);
 		expect(await controller.link("a", "b", "c")).toMatch(/not a project/i);
 		expect(await controller.unlink("a", "b", "c")).toMatch(/not a project/i);
@@ -94,14 +94,14 @@ describe("MemoryController.revise", () => {
 describe("MemoryController.forget", () => {
 	it("reports a fact that was not there", async () => {
 		const { controller } = build();
-		expect(await controller.forget(999, "project")).toMatch(/no live fact/i);
+		expect(await controller.forget([999], "project")).toMatch(/no live fact/i);
 	});
 
 	it("drops a fact that was", async () => {
 		const { controller, project } = build();
 		const stored = await controller.remember({ text: "a durable fact" });
 		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
-		expect(await controller.forget(id, "project")).toMatch(/forgot/i);
+		expect(await controller.forget([id], "project")).toMatch(/forgot/i);
 		expect(project?.live()).toHaveLength(0);
 	});
 });
@@ -321,5 +321,63 @@ describe("when the engine reports it could not check", () => {
 		const { controller } = build();
 		const answer = await controller.remember({ text: "a durable fact" });
 		expect(answer).not.toMatch(/without a duplicate check/i);
+	});
+});
+
+describe("clearing several facts at once", () => {
+	it("drops a list in one call", async () => {
+		// The job that produces a list of ids is clearing duplicates, and it is
+		// the job this tool is for. One-at-a-time made it unreachable: asked to
+		// drop four, the model announced "all of them in parallel" and emitted
+		// a single call, six times over, because one was all it was offered.
+		const { controller, project } = build();
+		const ids: number[] = [];
+		for (const text of ["fact one", "fact two", "fact three"]) {
+			const stored = await controller.remember({ text });
+			ids.push(Number(/\[f(\d+)\]/.exec(stored)?.[1]));
+		}
+		const answer = await controller.forget(ids, "project");
+		expect(answer).toMatch(/Forgot \[f0\], \[f1\], \[f2\]/);
+		expect(project?.live()).toHaveLength(0);
+	});
+
+	it("reports each id that was not there, and drops the rest anyway", async () => {
+		const { controller, project } = build();
+		const stored = await controller.remember({ text: "a durable fact" });
+		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
+		const answer = await controller.forget([id, 99], "project");
+		expect(answer).toMatch(/Forgot \[f0\]/);
+		expect(answer).toMatch(/no live fact \[f99\]/i);
+		expect(project?.live()).toHaveLength(0);
+	});
+
+	it("says YOU already did that, rather than leaving it ambiguous", async () => {
+		// "It may have been forgotten already" is true and useless: the model
+		// read it, looked at a block that still listed the fact, and concluded
+		// its own tool did nothing.
+		const { controller } = build();
+		const stored = await controller.remember({ text: "a durable fact" });
+		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
+		await controller.forget([id], "project");
+		expect(await controller.forget([id], "project")).toMatch(
+			/YOU forgot it earlier in this session and it worked/,
+		);
+	});
+
+	it("escalates when the same failing call keeps arriving", async () => {
+		const { controller } = build();
+		await controller.forget([99], "project");
+		expect(await controller.forget([99], "project")).toMatch(/second time/i);
+		expect(await controller.forget([99], "project")).toMatch(/^stop\./i);
+	});
+
+	it("treats a new user message as a new situation", async () => {
+		const { controller } = build();
+		await controller.forget([99], "project");
+		await controller.forget([99], "project");
+		controller.noteUserMessage();
+		expect(await controller.forget([99], "project")).not.toMatch(
+			/second time/i,
+		);
 	});
 });

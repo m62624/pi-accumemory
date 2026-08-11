@@ -64,9 +64,22 @@ reason to try the same call again.
 
 If a call comes back with the same failure a second time, **stop repeating it**
 and read the message it gave you: it names what to change. Sending the same
-arguments again produces the same failure, and the block above your reply does
-not change between attempts - so nothing about the situation is different the
-third time either.`;
+arguments again produces the same failure.
+
+## The block is a snapshot, and a write makes it out of date
+
+A recalled fact is what the memory held when that block was built. After you
+\`longterm_forget\` something, the block above your reply is rebuilt - but the
+copy already in your context, above your earlier replies, is not, and it still
+lists what you removed.
+
+**So: trust the tool's answer, not the block.** \`Forgot [f3]\` means [f3] is gone,
+even if you can still see [f3] in a block written before you removed it. Reading
+it there and concluding your call did not work is how a session spends six turns
+deleting the same fact.
+
+If a forget answers "there is no live fact [fN]" and you have already forgotten
+that id in this session, it is done. Move on.`;
 
 const memory = `# Your long-term memory
 
@@ -130,6 +143,10 @@ have several distinct facts, send several calls with *different* text.
 Both take the \`[fN]\` number **and the \`scope\` of the memory you read it in**.
 See "How to read what you are shown" - the two memories number facts separately,
 so the number alone is not enough.
+
+**Clearing several at once:** \`longterm_forget\` takes \`ids: [3, 4, 5]\`. One call,
+one answer, and the block above your next reply is rebuilt from the result. Do
+not send one call per id and do not repeat a call that just failed - see below.
 
 ## Hard rules
 
