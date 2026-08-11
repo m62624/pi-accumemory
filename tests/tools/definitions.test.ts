@@ -220,9 +220,15 @@ describe("tool behaviour", () => {
 		});
 		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
 		expect(
-			await call("longterm_revise", { id, text: "the linter here is biome" }),
+			await call("longterm_revise", {
+				id,
+				text: "the linter here is biome",
+				scope: "project",
+			}),
 		).toMatch(/revised/i);
-		expect(await call("longterm_forget", { id: id + 1 })).toMatch(/forgot/i);
+		expect(
+			await call("longterm_forget", { id: id + 1, scope: "project" }),
+		).toMatch(/forgot/i);
 	});
 
 	it("lists tags with their counts", async () => {

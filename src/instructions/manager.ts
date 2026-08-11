@@ -24,6 +24,7 @@ import { createHash } from "node:crypto";
 import type { FileOps } from "../fs-ops.ts";
 
 export const INSTRUCTION_KEYS = [
+	"reading",
 	"memory",
 	"placement",
 	"consolidation",

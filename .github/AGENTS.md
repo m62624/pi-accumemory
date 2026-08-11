@@ -29,8 +29,10 @@ GitHub automation for this TypeScript Pi extension: CI, PR labeling, the release
 - `tests/workflows.test.ts` — the workflows parse, only call npm scripts that exist,
   keep the single aggregating gate, and mention no other project's name.
 - `tests/sdk-boundary.test.ts` — only `src/index.ts` and `src/consolidation/pi-agent.ts`
-  import `@earendil-works/*`; only `src/storage/plugmem-store.ts` imports `plugmem`.
-  The SDK watcher's pass/fail signal means nothing without this.
+  import `@earendil-works/*` (index.ts also imports `@earendil-works/pi-tui`, for the
+  one thing plain text cannot do: render a tool result differently from what the model
+  reads); only `src/storage/plugmem-store.ts` imports `plugmem`. The SDK watcher's
+  pass/fail signal means nothing without this.
 
 ## Read First
 - `workflows/ci.yml`

@@ -22,6 +22,7 @@ day it does not.
 	"timezone": null,
 	"memory": {
 		"enabled": true,
+		"writeOutput": "short",
 		"recallTokenBudget": 512,
 		"recallK": 0,
 		"graphDepth": null,
@@ -103,6 +104,25 @@ definition of a topic change.
 | `memory.graphDepth` | `null` | how far to follow entity links; `null` uses the engine's default |
 | `memory.manifest` | `true` | the one-line inventory shown once at session start, so the model knows there is something to ask about |
 | `memory.queryMaxChars` | `600` | ceiling on the recall query. Lexical retrieval degrades as terms pile up, and a pasted wall of text drowns the words that identify the question |
+| `memory.writeOutput` | `"short"` | how much of a memory write is printed **in your terminal**. See below |
+
+## What you see when a fact is stored — `memory.writeOutput`
+
+This setting changes **only what you see**. The model is always told everything:
+which memory the fact landed in, under which entity, with which tags, and which
+tags that memory already uses. Each of those is something it cannot recover on
+its own and needs later — the scope to address the fact at all (the two memories
+number their facts separately), the entity because that is what the duplicate
+guard compares against, and the tag vocabulary because filtering matches tags
+exactly, so a second spelling splits the pile and neither half ever answers the
+other's question.
+
+| value | what the terminal shows |
+|---|---|
+| `"short"` (default) | one line: `Stored [f7] in this project (app).` |
+| `"full"` | everything the model was told. Useful while you are tuning tags or watching what lands where |
+| `"hidden"` | nothing at all |
+
 
 ## Writing — `memory.nudge.*`
 

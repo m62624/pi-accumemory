@@ -21,6 +21,11 @@ import { progressQuery, recallQuery } from "../memory/query.ts";
 import { RefreshPolicy } from "../memory/refresh.ts";
 import { suggestionText, suggestTag } from "../memory/tag-suggest.ts";
 import type { Turn } from "../memory/transcript-view.ts";
+import {
+	modelReport,
+	type Neighbour,
+	type WriteReport,
+} from "../memory/write-report.ts";
 import type { NoteStore } from "../notes/store.ts";
 import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
@@ -90,6 +95,8 @@ export class MemoryController {
 	private block = "";
 	private manifestPending: boolean;
 	private manifestShown = false;
+	/** Detail of the last successful write, for the terminal renderer. */
+	private lastWrite: WriteReport | undefined;
 
 	constructor(private readonly deps: ControllerDeps) {
 		this.refresh = new RefreshPolicy(deps.settings.memory.refresh);
@@ -170,7 +177,7 @@ export class MemoryController {
 		if (query.trim() === "") return "";
 
 		const sections: string[] = [];
-		for (const [label, memory] of this.readableScopes()) {
+		for (const [factScope, label, memory] of this.readableScopes()) {
 			const found = await memory.recall({
 				query,
 				tokenBudget: recallTokenBudget,
@@ -180,7 +187,7 @@ export class MemoryController {
 				}),
 			});
 			const visible = dropVisible(found.rendered, turns);
-			const block = memoryBlock(visible, label);
+			const block = memoryBlock(visible, label, factScope);
 			if (block !== "") sections.push(block);
 		}
 		return sections.join("\n\n");
@@ -188,7 +195,7 @@ export class MemoryController {
 
 	private async manifest(): Promise<string> {
 		const scopes: ManifestScope[] = [];
-		for (const [label, memory] of this.readableScopes()) {
+		for (const [, label, memory] of this.readableScopes()) {
 			const stats = await memory.stats();
 			const tags = await memory.listTags({ limit: 8 });
 			scopes.push({ label, facts: stats.facts, tags: tags.items });
@@ -205,7 +212,7 @@ export class MemoryController {
 	 */
 	private async alwaysInstructions(): Promise<string> {
 		const rules: string[] = [];
-		for (const [, memory] of this.readableScopes()) {
+		for (const [, , memory] of this.readableScopes()) {
 			for (const fact of await memory.scan({
 				tags: [INSTRUCTION_TAG, ALWAYS_TAG],
 			})) {
@@ -223,7 +230,7 @@ export class MemoryController {
 		this.askGuard.record(input.question);
 
 		const sections: string[] = [];
-		for (const [label, memory] of this.readableScopes(scope)) {
+		for (const [factScope, label, memory] of this.readableScopes(scope)) {
 			const found = await memory.recall({
 				query: input.question,
 				tokenBudget: this.deps.settings.memory.recallTokenBudget,
@@ -240,7 +247,7 @@ export class MemoryController {
 			sections.push(
 				found.rendered.trim() === ""
 					? `${label}: nothing on this.`
-					: `${label}:\n${found.rendered.trim()}`,
+					: `${label} - these ids are scope: "${factScope}":\n${found.rendered.trim()}`,
 			);
 		}
 		if (sections.length === 0) return this.noProjectMessage();
@@ -325,52 +332,174 @@ export class MemoryController {
 
 	async remember(input: RememberInputForModel): Promise<string> {
 		const scope = input.scope ?? "project";
+		if (scope === "both") return this.noProjectMessage();
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 
 		const suggestions = await this.tagSuggestions(memory, input.tags ?? []);
+		const entity = input.entity ?? this.defaultEntity(scope);
 		const stored = await memory.rememberGuarded({
 			text: input.text,
-			entity: input.entity ?? this.defaultEntity(scope),
+			entity,
 			...defined({ tags: input.tags }),
 		});
 		this.nudge.noteWrite();
 
 		if (stored.status === "blocked") {
-			const ids = stored.similar.map((hit) => `[f${hit.id}]`).join(", ");
-			return (
-				`Not stored: the memory already holds something that says nearly the same thing (${ids}). ` +
-				"If yours replaces it, use longterm_revise with that id; if both are true, rephrase " +
-				"so the difference is explicit."
+			// The refusal names WHAT it collided with, not just the ids. A bare
+			// list of numbers leaves the model with two guesses - rephrase, or
+			// revise - and no way to tell which, so it usually just sends the
+			// same call again.
+			const held = await this.describeNeighbours(memory, stored.similar);
+			const lines = held.map(
+				(hit) =>
+					`  [f${hit.id}] ${hit.text}${hit.tags.length === 0 ? "" : ` #${hit.tags.join(" #")}`}`,
 			);
+			return [
+				`Not stored: ${this.label(scope)} already holds this, in these words:`,
+				...lines,
+				`If yours REPLACES one of them, call longterm_revise with its id and scope: "${scope}". ` +
+					"If both are true, rephrase yours so the difference is explicit. If yours " +
+					"adds nothing, it is already remembered - move on. Do not send this call " +
+					"again unchanged.",
+			].join("\n");
 		}
-		return [
-			`Stored [f${stored.id}] in ${this.label(scope)}.`,
-			...suggestions,
-		].join("\n");
+		// The model gets the whole account; what the terminal prints is decided
+		// in `index.ts` from `memory.writeOutput`. See `memory/write-report.ts`.
+		this.lastWrite = {
+			id: stored.id ?? -1,
+			scope,
+			scopeLabel: this.label(scope),
+			entity,
+			tags: input.tags ?? [],
+			vocabulary: await this.vocabulary(memory),
+			notes: suggestions,
+		};
+		return modelReport(this.lastWrite);
+	}
+
+	/**
+	 * How this entity's facts are already tagged.
+	 *
+	 * The question this answers is "which tag does this memory use for this
+	 * kind of thing", asked at the moment the model is choosing one - because
+	 * a tag filter matches exactly, so a second spelling splits the pile in
+	 * half and neither half ever answers the other's question.
+	 *
+	 * What it deliberately is NOT is a list of near-duplicates. A recall always
+	 * returns its best match, however weak: it has no threshold below which it
+	 * says "nothing is close". The similarity DETECTOR does - it compares term
+	 * sets and cosines against fixed thresholds and answers with nothing when
+	 * nothing is near. pi-telegram-manager paid for that distinction with a
+	 * lost fact: a recall's nearest neighbour at a fused score of 0.02 was read
+	 * as a duplicate of a completely unrelated statement. So the only thing
+	 * ever reported here as "already held" is what the engine itself refused a
+	 * write over, and that lives on the blocked path.
+	 */
+	private async vocabulary(memory: ReadableMemory): Promise<string[]> {
+		const page = await memory.listTags({ limit: 8 });
+		return page.items
+			.filter((tag) => tag.count > 0)
+			.map((tag) => `${tag.name}(${tag.count})`);
+	}
+
+	/**
+	 * Turns the engine's id/score pairs into something readable.
+	 *
+	 * The engine reports which facts it considered close, but only by number.
+	 * A number tells the model nothing it can act on; the sentence and its tags
+	 * tell it what it nearly repeated and which tag this memory already uses
+	 * for that kind of thing. Two or three lookups, on a write.
+	 */
+	private async describeNeighbours(
+		memory: ReadableMemory,
+		similar: readonly { id: number; score: number }[],
+	): Promise<Neighbour[]> {
+		const described: Neighbour[] = [];
+		for (const hit of similar.slice(0, 3)) {
+			const card = await memory.get(hit.id);
+			if (card === null) continue;
+			described.push({
+				id: hit.id,
+				score: hit.score,
+				text: card.text,
+				tags: card.tags,
+			});
+		}
+		return described;
+	}
+
+	/**
+	 * The last write, in full, for whoever renders the terminal.
+	 *
+	 * Kept here rather than returned alongside the string because the tool
+	 * contract is "a tool answers with text" - and the text is the model's, not
+	 * the screen's.
+	 */
+	takeLastWrite(): WriteReport | undefined {
+		const report = this.lastWrite;
+		this.lastWrite = undefined;
+		return report;
 	}
 
 	async revise(
 		id: number,
 		text: string,
-		scope: Scope = "project",
+		scope: Scope | undefined,
 		tags?: string[],
 	): Promise<string> {
+		if (scope === undefined || scope === "both")
+			return whichMemory("revise", id);
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
+		if ((await memory.get(id)) === null)
+			return this.missing(id, scope, "revise");
 		const stored = await memory.revise(id, { text, ...defined({ tags }) });
 		this.nudge.noteWrite();
-		return `Revised [f${id}] into [f${stored.id}]. The old version is kept as history.`;
+		return `Revised [f${id}] into [f${stored.id}] in ${this.label(scope)}. The old version is kept as history.`;
 	}
 
-	async forget(id: number, scope: Scope = "project"): Promise<string> {
+	async forget(id: number, scope: Scope | undefined): Promise<string> {
+		if (scope === undefined || scope === "both")
+			return whichMemory("forget", id);
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 		const dropped = await memory.forget(id);
 		this.nudge.noteWrite();
-		return dropped
-			? `Forgot [f${id}].`
-			: `There is no live fact [f${id}] in ${this.label(scope)}.`;
+		if (dropped) return `Forgot [f${id}] from ${this.label(scope)}.`;
+		return this.missing(id, scope, "forget");
+	}
+
+	/**
+	 * "Not found" - plus where it actually is.
+	 *
+	 * The bare version of this message cost a live session ten consecutive
+	 * failed calls: the model read `[f3]` in the shared memory, called forget
+	 * without a scope, was told "fact 3 not found", and had no way to learn that
+	 * the fact it wanted was one word away. A dead end that names the next step
+	 * is not a dead end, so this looks in the other memory before answering.
+	 */
+	private async missing(
+		id: number,
+		scope: Exclude<Scope, "both">,
+		verb: "revise" | "forget",
+	): Promise<string> {
+		const other: Exclude<Scope, "both"> = scope === "user" ? "project" : "user";
+		const elsewhere = this.readableScope(other);
+		const found = elsewhere === undefined ? null : await elsewhere.get(id);
+		const head = `There is no live fact [f${id}] in ${this.label(scope)}.`;
+		if (found === null) {
+			return (
+				`${head} It may have been forgotten already, or the number may come from ` +
+				"an older block - re-read the memory block above before trying again, and " +
+				"do not repeat this call unchanged."
+			);
+		}
+		return (
+			`${head} The other memory (${this.label(other)}) does have [f${id}]: ` +
+			`"${found.text}". If that is the one you meant, call longterm_${verb} again ` +
+			`with scope: "${other}".`
+		);
 	}
 
 	async listTags(
@@ -474,13 +603,22 @@ export class MemoryController {
 		return scope === "user" ? this.deps.common : this.deps.project;
 	}
 
-	/** Label/memory pairs, project first, skipping what is not open. */
-	private readableScopes(scope: Scope = "both"): [string, ReadableMemory][] {
-		const pairs: [string, ReadableMemory][] = [];
+	/**
+	 * Scope/label/memory triples, project first, skipping what is not open.
+	 *
+	 * The scope travels with the label because everything rendered from one of
+	 * these carries fact ids, and an id without its memory named is an id that
+	 * addresses the wrong fact.
+	 */
+	private readableScopes(
+		scope: Scope = "both",
+	): [Exclude<Scope, "both">, string, ReadableMemory][] {
+		const pairs: [Exclude<Scope, "both">, string, ReadableMemory][] = [];
 		if (scope !== "user" && this.deps.project !== undefined) {
-			pairs.push([this.label("project"), this.deps.project]);
+			pairs.push(["project", this.label("project"), this.deps.project]);
 		}
-		if (scope !== "project") pairs.push([this.label("user"), this.deps.common]);
+		if (scope !== "project")
+			pairs.push(["user", this.label("user"), this.deps.common]);
 		return pairs;
 	}
 
@@ -513,6 +651,19 @@ export class MemoryController {
 		return notes;
 	}
 }
+
+/**
+ * The answer to an id with no memory named.
+ *
+ * Deliberately not a default. Guessing "project" is what produced the failure
+ * this whole path exists for, and guessing wrong on `forget` deletes the wrong
+ * fact rather than merely failing.
+ */
+const whichMemory = (verb: string, id: number): string =>
+	`Which memory is [f${id}] in? The two number their facts separately, so [f${id}] ` +
+	"exists in both and means two different things. Look at the heading above the " +
+	`line you read it under, then call longterm_${verb} again with scope: "project" ` +
+	'(this codebase) or scope: "user" (the shared memory about the person).';
 
 const MISMATCHED_PROJECT = (name: string): string =>
 	`Project "${name}" was last written with a different embedding model, and its ` +

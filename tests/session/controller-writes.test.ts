@@ -47,7 +47,11 @@ describe("MemoryController.revise", () => {
 			text: "the linter here is eslint",
 		});
 		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
-		const message = await controller.revise(id, "the linter here is biome");
+		const message = await controller.revise(
+			id,
+			"the linter here is biome",
+			"project",
+		);
 		expect(message).toMatch(/kept as history/i);
 		expect(project?.facts).toHaveLength(2);
 		expect(project?.live()).toHaveLength(1);
@@ -67,8 +71,10 @@ describe("MemoryController.revise", () => {
 
 	it("explains itself outside a project", async () => {
 		const { controller } = build({ withProject: false });
-		expect(await controller.revise(0, "x")).toMatch(/not a project/i);
-		expect(await controller.forget(0)).toMatch(/not a project/i);
+		expect(await controller.revise(0, "x", "project")).toMatch(
+			/not a project/i,
+		);
+		expect(await controller.forget(0, "project")).toMatch(/not a project/i);
 		expect(await controller.listTags()).toMatch(/not a project/i);
 		expect(await controller.link("a", "b", "c")).toMatch(/not a project/i);
 		expect(await controller.unlink("a", "b", "c")).toMatch(/not a project/i);
@@ -88,14 +94,14 @@ describe("MemoryController.revise", () => {
 describe("MemoryController.forget", () => {
 	it("reports a fact that was not there", async () => {
 		const { controller } = build();
-		expect(await controller.forget(999)).toMatch(/no live fact/i);
+		expect(await controller.forget(999, "project")).toMatch(/no live fact/i);
 	});
 
 	it("drops a fact that was", async () => {
 		const { controller, project } = build();
 		const stored = await controller.remember({ text: "a durable fact" });
 		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
-		expect(await controller.forget(id)).toMatch(/forgot/i);
+		expect(await controller.forget(id, "project")).toMatch(/forgot/i);
 		expect(project?.live()).toHaveLength(0);
 	});
 });
@@ -237,5 +243,60 @@ describe("MemoryController.noteCompact", () => {
 			{ role: "user", text: "which formatter does this repo use" },
 		]);
 		expect(after).toContain("biome");
+	});
+});
+
+describe("what a write tells the model", () => {
+	it("names the scope, so the fact can be addressed later", async () => {
+		// The number alone addresses nothing: the two memories number their
+		// facts separately. Telling the model the scope at the moment it
+		// learns the id is the cheapest place to say it.
+		const { controller } = build();
+		const answer = await controller.remember({
+			text: "tests run under vitest here",
+		});
+		expect(answer).toMatch(/\[f\d+\]/);
+		expect(answer).toContain("scope  : project");
+		expect(answer).toContain("entity : project");
+	});
+
+	it("names what it collided with when a write is refused", async () => {
+		// A bare list of ids leaves the model with two guesses - rephrase, or
+		// revise - and no way to tell which. So it sends the same call again.
+		const { controller } = build();
+		await controller.remember({
+			text: "the cache is off because of a warmup race",
+			tags: ["gotcha"],
+		});
+		const refused = await controller.remember({
+			text: "the cache is off because of a warmup race",
+		});
+		expect(refused).toMatch(/not stored/i);
+		expect(refused).toContain("[f0] the cache is off because of a warmup race");
+		expect(refused).toContain("#gotcha");
+		expect(refused).toContain('scope: "project"');
+		expect(refused).toMatch(/do not send this call again unchanged/i);
+	});
+
+	it("hands the same detail to the terminal, once", async () => {
+		const { controller } = build();
+		await controller.remember({ text: "a durable fact", tags: ["decision"] });
+		const first = controller.takeLastWrite();
+		expect(first?.scope).toBe("project");
+		expect(first?.tags).toEqual(["decision"]);
+		// Taken, not peeked: a second tool call must not re-render the first
+		// call's write.
+		expect(controller.takeLastWrite()).toBeUndefined();
+	});
+
+	it("leaves nothing behind when the write was refused", async () => {
+		const { controller } = build();
+		await controller.remember({ text: "the linter here is biome" });
+		controller.takeLastWrite();
+		const refused = await controller.remember({
+			text: "the linter here is biome",
+		});
+		expect(refused).toMatch(/not stored/i);
+		expect(controller.takeLastWrite()).toBeUndefined();
 	});
 });

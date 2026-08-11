@@ -13,13 +13,21 @@
  *   refuses to open is a broken tool.
  */
 
+import { homedir } from "node:os";
 import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { extensionLayout } from "./layout.ts";
 import type { Turn } from "./memory/transcript-view.ts";
+import {
+	modelReport,
+	shortReport,
+	type WriteReport,
+} from "./memory/write-report.ts";
 import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
 import { nodeFileOps } from "./node-fs.ts";
+import { withHead } from "./session/head.ts";
 import { createIdleTrigger } from "./session/idle-trigger.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
@@ -55,6 +63,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 			pathModule: path,
 			agentDir,
 			cwd: process.cwd(),
+			home: homedir(),
 		});
 		started.notices.unshift(...warnings);
 		return started;
@@ -88,7 +97,24 @@ export default function accumemory(pi: ExtensionAPI): void {
 						? (startupError ??
 							"Long-term memory is not available in this session.")
 						: await spec.run((params ?? {}) as Record<string, unknown>);
-				return { content: [{ type: "text", text }], details: undefined };
+				// `content` is what the MODEL reads, and it always carries the
+				// full account - see `memory/write-report.ts` for why every part
+				// of it is load-bearing. What the person sees is `renderResult`
+				// below, and only that is configurable.
+				const write = session?.controller.takeLastWrite();
+				return {
+					content: [{ type: "text", text }],
+					details: write,
+				};
+			},
+			renderResult: (result, _options, _theme) => {
+				const detail = result.details as WriteReport | undefined;
+				const mode = session?.settings.memory.writeOutput ?? "short";
+				if (detail === undefined) return new Text(resultText(result));
+				if (mode === "hidden") return new Text("");
+				return new Text(
+					mode === "full" ? modelReport(detail) : shortReport(detail),
+				);
 			},
 		});
 	}
@@ -100,13 +126,20 @@ export default function accumemory(pi: ExtensionAPI): void {
 		if (session === undefined) return;
 		const turns = toTurns(event.messages);
 		const tail = await session.controller.tail(turns);
-		if (tail === "") return;
-		// LAST message, always. A backend caches a prefix, and this changes on
-		// every refresh by construction; anywhere above the transcript it would
-		// charge the whole transcript each time.
+
+		// Head and tail, and the split is the whole caching strategy. The
+		// instructions never change during a session, so in front they cost one
+		// cached prefix; the memory block changes by construction, so it goes
+		// last, where a change re-reads nothing but itself.
+		//
+		// Both are rebuilt here rather than written into the session, which is
+		// what makes them survive a compaction - a summary can rewrite the
+		// conversation, but not something that was never in it.
+		const messages = withHead(event.messages, session.headInstructions);
+		if (tail === "") return { messages };
 		return {
 			messages: [
-				...event.messages,
+				...messages,
 				{ role: "user", content: tail, timestamp: Date.now() },
 			],
 		};
@@ -321,3 +354,12 @@ function describe(error: unknown): string {
 
 /** Re-exported so a consumer can drive the pieces without the extension shell. */
 export { messageToTurn, type Turn, toTurns };
+
+/** The text a tool result carries, for the results that are not writes. */
+function resultText(result: {
+	content?: { type: string; text?: string }[];
+}): string {
+	return (result.content ?? [])
+		.map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+		.join("");
+}

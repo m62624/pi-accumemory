@@ -111,7 +111,7 @@ describe("the extension entry point", () => {
 		});
 	});
 
-	it("appends its tail as the last message, never above the transcript", async () => {
+	it("puts its instructions first and its memory block last", async () => {
 		const { api, fire } = stubApi();
 		const { default: accumemory } = await import("../../src/index.ts");
 		accumemory(api as never);
@@ -120,13 +120,46 @@ describe("the extension entry point", () => {
 		const [result] = (await fire("context", { type: "context", messages })) as [
 			{ messages?: { role: string; content: string }[] } | undefined,
 		];
-		// A tail is optional - an empty memory adds nothing - but when there is
-		// one it goes last and the transcript above it is untouched.
-		if (result?.messages !== undefined) {
-			expect(result.messages.length).toBe(messages.length + 1);
-			expect(result.messages.slice(0, messages.length)).toEqual(messages);
-			expect(result.messages.at(-1)?.role).toBe("user");
+		const produced = result?.messages;
+		expect(produced).toBeDefined();
+		if (produced === undefined) return;
+
+		// The instructions. Their absence is the failure this test exists for:
+		// they were written, synced to disk and documented for weeks while the
+		// live model received none of them and worked off tool descriptions.
+		expect(produced[0]?.content).toContain("[SYSTEM_INSTRUCTIONS");
+		expect(produced[0]?.content).toMatch(/how to read what you are shown/i);
+		expect(produced[0]?.content).toMatch(/never store/i);
+
+		// The transcript, untouched, between head and tail.
+		expect(produced.slice(1, 1 + messages.length)).toEqual(messages);
+		expect(produced.length).toBeGreaterThanOrEqual(messages.length + 1);
+		expect(produced.at(-1)?.role).toBe("user");
+
+		await fire("session_shutdown", {
+			type: "session_shutdown",
+			reason: "quit",
+		});
+	});
+
+	it("keeps the head byte-identical between calls, so the prefix caches", async () => {
+		const { api, fire } = stubApi();
+		const { default: accumemory } = await import("../../src/index.ts");
+		accumemory(api as never);
+
+		const messages = [{ role: "user", content: "why is the cache off" }];
+		const heads: (string | undefined)[] = [];
+		for (let call = 0; call < 3; call += 1) {
+			const [result] = (await fire("context", {
+				type: "context",
+				messages,
+			})) as [{ messages?: { content: string }[] } | undefined];
+			heads.push(result?.messages?.[0]?.content);
 		}
+		expect(heads[0]).toBeDefined();
+		expect(heads[1]).toBe(heads[0]);
+		expect(heads[2]).toBe(heads[0]);
+
 		await fire("session_shutdown", {
 			type: "session_shutdown",
 			reason: "quit",

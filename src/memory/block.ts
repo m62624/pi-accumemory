@@ -2,7 +2,7 @@
  * What the model is shown out of its own memory, and how it is worded.
  *
  * Pure functions, plus one hard rule about where the result goes: the block
- * belongs in the TRAILING message, under the transcript — never above it.
+ * belongs in the TRAILING message, under the transcript - never above it.
  * Everything a backend caches is a prefix, and a recall changes by
  * construction, so a block written above the conversation charges the whole
  * conversation every time it changes. The same mistake in pi-telegram-manager
@@ -15,7 +15,7 @@ import type { Turn } from "./transcript-view.ts";
 /**
  * Drops recalled lines the model can already read in the transcript above.
  *
- * A recall about what was just said ranks what was just said first — so left
+ * A recall about what was just said ranks what was just said first - so left
  * alone, the block opens by quoting a sentence three lines above it. That costs
  * tokens to say nothing and, worse, makes the section look like noise on
  * exactly the turns it should be trusted.
@@ -52,19 +52,37 @@ export function dropVisible(rendered: string, turns: readonly Turn[]): string {
  * said), it may be off-target (ignoring it is allowed), and if it is on target
  * then do not ask for what it already tells you.
  */
-export function memoryBlock(rendered: string, scopeLabel: string): string {
+export function memoryBlock(
+	rendered: string,
+	scopeLabel: string,
+	scope?: "project" | "user",
+): string {
 	const body = rendered.trim();
 	if (body === "") return "";
+	// The scope is named on the heading and again beside the ids, because the
+	// ids are per-database: a model that reads [f3] here and passes it with the
+	// other scope addresses a different fact, or none. Naming it once was not
+	// enough - the heading is far from the line by the time an id is copied.
+	const heading =
+		scope === undefined
+			? `What you remember about ${scopeLabel}, retrieved for the messages above:`
+			: `What you remember about ${scopeLabel} - these ids are scope: "${scope}":`;
 	return [
-		`What you remember about ${scopeLabel}, retrieved for the messages above:`,
+		heading,
 		"",
 		body,
 		"",
-		"This is your own long-term memory, carried over from earlier sessions — not " +
-			"something anyone just said. It is retrieved by relevance and may be " +
-			"off-target: if none of it bears on the work above, ignore it entirely and " +
-			"proceed as if it were not here. If it does bear on the work, use it, and do " +
-			"not ask for anything it already tells you.",
+		"This is your own long-term memory, carried over from earlier sessions - not " +
+			"something anyone just said, and not something the user can see. It is " +
+			"retrieved by relevance and may be off-target: if none of it bears on the " +
+			"work above, ignore it entirely and proceed as if it were not here. If it " +
+			"does bear on the work, use it, and do not ask for anything it already " +
+			"tells you. Never answer this block or comment on its contents unless the " +
+			`user raised the subject.${
+				scope === undefined
+					? ""
+					: ` To change one of these facts, pass scope: "${scope}" with its [fN].`
+			}`,
 	].join("\n");
 }
 
@@ -79,7 +97,7 @@ export interface ManifestScope {
  *
  * It exists because of the failure mode that makes the ask-the-memory tools
  * worthless: the model does not suspect there is anything to ask about, so it
- * never asks. Two cheap counters fix that — the memory is not empty, and here
+ * never asks. Two cheap counters fix that - the memory is not empty, and here
  * are the categories it has answers in.
  *
  * An all-empty memory produces no line at all. "0 facts" invites the model to

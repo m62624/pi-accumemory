@@ -71,10 +71,28 @@ export interface ConsolidationSettings {
 	promoteToCommon: boolean;
 }
 
+/**
+ * How much of a memory write is echoed into the terminal.
+ *
+ * Only what the PERSON sees. The model is always given the full account -
+ * which memory, which entity, which tags, and which existing facts the new one
+ * sits next to - because every one of those is something it needs to choose a
+ * tag consistently, to notice a near-duplicate, or to address a fact later.
+ * Trimming what the model reads to make the terminal tidier would be paying for
+ * a quiet screen with a worse memory.
+ *
+ * - `short`  - one line: what was stored and where.
+ * - `full`   - everything the model was told. Useful while tuning the setup.
+ * - `hidden` - nothing at all.
+ */
+export type WriteOutput = "short" | "full" | "hidden";
+
 export interface Settings {
 	timezone: string | null;
 	memory: {
 		enabled: boolean;
+		/** What the terminal shows on a memory write; the model always sees all. */
+		writeOutput: WriteOutput;
 		recallTokenBudget: number;
 		/** 0 leaves the engine's own default in charge. */
 		recallK: number;
@@ -109,6 +127,7 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 	timezone: null,
 	memory: {
 		enabled: true,
+		writeOutput: "short",
 		recallTokenBudget: 512,
 		recallK: 0,
 		graphDepth: null,

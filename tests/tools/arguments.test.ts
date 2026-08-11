@@ -147,7 +147,21 @@ describe("tool arguments", () => {
 
 	it("reports rather than throws on a forget of nothing", async () => {
 		const { call } = build();
-		expect(await call("longterm_forget", { id: 999 })).toMatch(/no live fact/i);
+		expect(
+			await call("longterm_forget", { id: 999, scope: "project" }),
+		).toMatch(/no live fact/i);
+	});
+
+	it("asks which memory when an id arrives without one", async () => {
+		// The failure this prevents cost a live session ten consecutive calls:
+		// the model read [f3] in the shared memory, forget defaulted to the
+		// project, and "fact 3 not found" gave it nothing to correct.
+		const { call } = build();
+		for (const name of ["longterm_forget", "longterm_revise"]) {
+			const answer = await call(name, { id: 3, text: "x" });
+			expect(answer, name).toMatch(/which memory/i);
+			expect(answer, name).toContain('scope: "user"');
+		}
 	});
 
 	it("revises with tags when they are given", async () => {
@@ -159,6 +173,7 @@ describe("tool arguments", () => {
 		await call("longterm_revise", {
 			id,
 			text: "the linter is biome",
+			scope: "project",
 			tags: ["tooling"],
 		});
 		expect(project.live()[0]?.tags).toEqual(["tooling"]);

@@ -46,6 +46,7 @@ import {
 	PlugmemReader,
 	PlugmemStore,
 } from "./storage/plugmem-store.ts";
+import { defined } from "./tools/args.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import type { ProgressStep } from "./ui/reembed-progress.ts";
 
@@ -74,11 +75,27 @@ export interface StartupOptions {
 	pathModule: PathModule;
 	agentDir: string;
 	cwd: string;
+	/**
+	 * The user's home directory, which is never itself a project.
+	 *
+	 * Injected rather than read from the environment so the rule is testable on
+	 * both path flavours. See `project/detect.ts` for why it is needed at all.
+	 */
+	home?: string;
 }
 
 export interface StartedSession {
 	controller: MemoryController;
+	/** The parsed settings, for the entry point's rendering decisions. */
+	settings: Settings;
 	instructions: InstructionManager;
+	/**
+	 * The standing instructions, composed once for the head of every context.
+	 *
+	 * Held as a string rather than recomposed per call so the head of the prompt
+	 * is byte-identical all session - see `session/head.ts`.
+	 */
+	headInstructions: string;
 	cursors: CursorStore;
 	projectId?: string;
 	projectRoot?: string;
@@ -151,7 +168,11 @@ export async function startSession(
 	}
 
 	const router = new ProjectRouter(common);
-	const projectRoot = await detectProjectRoot(cwd, { fs, flavour: pathModule });
+	const projectRoot = await detectProjectRoot(cwd, {
+		fs,
+		flavour: pathModule,
+		...defined({ home: options.home }),
+	});
 
 	let projectId: string | undefined;
 	let projectWriter: PlugmemStore | undefined;
@@ -214,6 +235,22 @@ export async function startSession(
 		bundled: BUNDLED_INSTRUCTIONS,
 	});
 	await instructions.sync();
+
+	// Composed ONCE, here, and reused for every call of the session. Reading the
+	// files per call would spend I/O to produce the same bytes, and any drift
+	// between two reads would move the head of the prompt - which is the one
+	// place a change costs the entire cached prefix.
+	//
+	// `consolidation` is left out on purpose: it describes the background pass,
+	// which has its own context and its own copy. Telling a live session how the
+	// idle pass works is prompt spent on something it will never do.
+	const headInstructions = await instructions.compose([
+		"reading",
+		"memory",
+		"placement",
+		"tags",
+		"notes",
+	]);
 
 	const notesCommon = new NoteStore(common, {
 		fs,
@@ -322,7 +359,9 @@ export async function startSession(
 
 	return {
 		controller,
+		settings,
 		instructions,
+		headInstructions,
 		cursors,
 		...(consolidation === undefined ? {} : { consolidation }),
 		consolidationQuietMs:

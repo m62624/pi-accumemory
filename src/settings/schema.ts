@@ -19,6 +19,8 @@ type FieldSpec =
 	| { kind: "string"; nullable?: boolean }
 	/** A non-negative integer: a count of messages, milliseconds or characters. */
 	| { kind: "count"; nullable?: boolean }
+	/** One of a fixed set of words; anything else names the allowed ones. */
+	| { kind: "choice"; of: readonly string[] }
 	| { kind: "section"; fields: Record<string, FieldSpec> };
 
 const COUNT: FieldSpec = { kind: "count" };
@@ -30,6 +32,7 @@ const SCHEMA: Record<string, FieldSpec> = {
 		kind: "section",
 		fields: {
 			enabled: BOOL,
+			writeOutput: { kind: "choice", of: ["short", "full", "hidden"] },
 			recallTokenBudget: COUNT,
 			recallK: COUNT,
 			graphDepth: { kind: "count", nullable: true },
@@ -154,7 +157,11 @@ function checkScalar(dotted: string, value: unknown, spec: FieldSpec): unknown {
 		throw new SettingsError(`settings: "${dotted}" must be an object`);
 	}
 	if (value === null) {
-		if (spec.kind !== "boolean" && spec.nullable === true) return null;
+		if (
+			(spec.kind === "string" || spec.kind === "count") &&
+			spec.nullable === true
+		)
+			return null;
 		throw new SettingsError(`settings: "${dotted}" must not be null`);
 	}
 	switch (spec.kind) {
@@ -172,6 +179,16 @@ function checkScalar(dotted: string, value: unknown, spec: FieldSpec): unknown {
 			if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
 				throw new SettingsError(
 					`settings: "${dotted}" must be a number: a non-negative whole count`,
+				);
+			}
+			return value;
+		case "choice":
+			// Named rather than "invalid value": a typo in one of three words is
+			// fixed in a second when the three are printed, and guessed at for
+			// minutes when they are not.
+			if (typeof value !== "string" || !spec.of.includes(value)) {
+				throw new SettingsError(
+					`settings: "${dotted}" must be one of ${spec.of.map((word) => `"${word}"`).join(", ")}`,
 				);
 			}
 			return value;

@@ -14,6 +14,60 @@
 
 import type { InstructionKey } from "./manager.ts";
 
+const reading = `# How to read what you are shown
+
+Read this section before the others. Every mistake it prevents was observed in a
+real session.
+
+## The memory block is YOURS, and nobody said it to you
+
+Near the end of your context you are shown a block that starts with
+\`## memory\`. **You wrote it. It is your own long-term memory, placed there
+automatically before this reply.** The user did not type it, did not paste it,
+and cannot see it.
+
+A common and serious mistake is to read that block as the user showing you
+something and to answer it - "I see there are duplicates, cleaning up" - as
+though they had just asked. They did not ask. The block is background: use it if
+it bears on the work, ignore it otherwise, and never comment on its contents
+unless the user raised the subject.
+
+The same holds for the \`[Now: ...]\` line: it is a clock, not a message. Do not
+reply to it.
+
+## The block has two halves, and they are two different memories
+
+\`\`\`
+## memory - this project (pi-accumemory)   <- scope: "project"
+- [f7] the cache is off: it raced with the warmup (2026-08; active) #decision
+
+## memory - shared, about you              <- scope: "user"
+- [f3] prefers Rust for systems work (2026-05; active) #preference
+\`\`\`
+
+**The two memories number their facts separately.** \`[f3]\` in the shared half
+and \`[f3]\` in the project half are two unrelated facts in two different
+databases. The number alone never identifies a fact.
+
+So whenever you pass an id to \`longterm_revise\` or \`longterm_forget\`, pass the
+\`scope\` of the half you read it from:
+
+\`\`\`
+longterm_forget { "id": 3, "scope": "user" }      <- the shared half
+longterm_forget { "id": 7, "scope": "project" }   <- the project half
+\`\`\`
+
+Calling without \`scope\` is an error that tells you what was missing. It is not a
+reason to try the same call again.
+
+## A failed call twice in a row means you misread something
+
+If a call comes back with the same failure a second time, **stop repeating it**
+and read the message it gave you: it names what to change. Sending the same
+arguments again produces the same failure, and the block above your reply does
+not change between attempts - so nothing about the situation is different the
+third time either.`;
+
 const memory = `# Your long-term memory
 
 You have a memory that survives between sessions and between projects. It is
@@ -73,7 +127,20 @@ have several distinct facts, send several calls with *different* text.
 - It is over and will not recur (a dated event whose date has passed):
   \`longterm_forget\`.
 
-The \`[fN]\` in a recalled line is that fact's id. Pass the number.`;
+Both take the \`[fN]\` number **and the \`scope\` of the memory you read it in**.
+See "How to read what you are shown" - the two memories number facts separately,
+so the number alone is not enough.
+
+## Hard rules
+
+1. **One call stores one fact.** The reply names it: \`Stored [f7]\`. Sending the
+   same call again does not store it harder - it was either kept or refused as a
+   duplicate. Several distinct facts mean several calls with *different* text.
+2. **Never repeat a call that just failed** without changing the arguments the
+   error asked you to change.
+3. **Never store a secret.** See the credentials section; it is not optional.
+4. **Never answer the memory block.** It is not a message. See "How to read what
+   you are shown".`;
 
 const placement = `# Which memory a fact belongs in
 
@@ -184,6 +251,7 @@ If a user pastes a secret, do not repeat it into memory. This rule cannot be
 switched off, and additions to it only ever make it stricter.`;
 
 export const BUNDLED_INSTRUCTIONS: Record<InstructionKey, string> = {
+	reading,
 	memory,
 	placement,
 	consolidation,

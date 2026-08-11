@@ -349,7 +349,7 @@ describe("startSession", () => {
 		expect(await session.controller.remember({ text })).toMatch(/Stored \[f/);
 		for (let attempt = 0; attempt < 3; attempt += 1) {
 			expect(await session.controller.remember({ text })).toMatch(
-				/already holds something/i,
+				/already holds this/i,
 			);
 		}
 	});
@@ -361,7 +361,7 @@ describe("startSession", () => {
 			/Stored \[f/,
 		);
 		expect(await session.controller.remember({ text, scope: "user" })).toMatch(
-			/already holds something/i,
+			/already holds this/i,
 		);
 	});
 });

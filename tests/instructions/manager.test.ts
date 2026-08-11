@@ -7,6 +7,7 @@ import {
 import { FakeFs } from "../helpers/fake-fs.ts";
 
 const bundled: Record<string, string> = {
+	reading: "how to read the block you are shown",
 	memory: "when to ask and when to save",
 	placement: "project or common",
 	consolidation: "how the idle pass works",

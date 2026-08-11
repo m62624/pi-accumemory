@@ -65,6 +65,26 @@ const SCOPE_PARAM = {
 		"of every session of every project.",
 } as const;
 
+/**
+ * The same choice, for the two tools that take a fact id.
+ *
+ * Separate because it is required rather than defaulted, and because the
+ * reason is different: not "where should this go" but "which of the two
+ * databases did you read that number in". They number facts independently, so
+ * a defaulted scope silently addresses the wrong one - observed live, as ten
+ * consecutive `fact 3 not found` replies while the fact sat in the other
+ * memory. `both` is not offered: an id belongs to exactly one of them.
+ */
+const ID_SCOPE_PARAM = {
+	type: "string",
+	enum: ["project", "user"],
+	description:
+		'Which memory you read the [fN] in: "project" for the block headed with ' +
+		'this project\'s name, "user" for the shared one about the person. The ' +
+		"numbering is per memory, so the same [f3] exists in both and means two " +
+		"different facts.",
+} as const;
+
 /** A minimal tool shape, so this module needs nothing from the SDK. */
 export interface ToolSpec {
 	name: LongtermToolName;
@@ -213,7 +233,9 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				`${WHOSE} Replace a fact that has CHANGED, using the [fN] id from a memory ` +
 				"block or a longterm_ask answer. The old version is closed rather than " +
 				"deleted, so questions about what was true earlier still answer. Use " +
-				"longterm_forget instead when the fact was simply never true.",
+				"longterm_forget instead when the fact was simply never true. REQUIRES " +
+				"scope: the two memories number their facts separately, so [f3] means " +
+				"nothing without saying which of them you read it in.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -222,16 +244,16 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 						type: "string",
 						description: "The statement that replaces it.",
 					},
-					scope: SCOPE_PARAM,
+					scope: ID_SCOPE_PARAM,
 					tags: { type: "array", items: { type: "string" } },
 				},
-				required: ["id", "text"],
+				required: ["id", "text", "scope"],
 			},
 			run: async (args) =>
 				controller.revise(
 					num(args.id),
 					str(args.text),
-					scopeOf(args.scope),
+					optScope(args.scope),
 					strArray(args.tags),
 				),
 		},
@@ -242,16 +264,18 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				`${WHOSE} Drop a fact that was wrong, or a dated one whose date has passed ` +
 				"with nothing suggesting it recurs. Keep the durable pattern behind a passed " +
 				'event: "plays that game on weekday evenings" outlives "plays at 20:30 on ' +
-				'Saturday".',
+				'Saturday". REQUIRES scope: the two memories number their facts separately, ' +
+				"so [f3] means nothing without saying which of them you read it in.",
 			parameters: {
 				type: "object",
 				properties: {
 					id: { type: "number", description: "The number inside [fN]." },
-					scope: SCOPE_PARAM,
+					scope: ID_SCOPE_PARAM,
 				},
-				required: ["id"],
+				required: ["id", "scope"],
 			},
-			run: async (args) => controller.forget(num(args.id), scopeOf(args.scope)),
+			run: async (args) =>
+				controller.forget(num(args.id), optScope(args.scope)),
 		},
 		{
 			name: "longterm_tags",
@@ -283,9 +307,9 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			name: "longterm_link",
 			label: "Long-term memory: link",
 			description:
-				`${WHOSE} Record a typed relationship between two entities - "auth module " +
-				depends-on session store". Links let a question about one reach what is known ` +
-				"about its neighbours.",
+				`${WHOSE} Record a typed relationship between two entities - ` +
+				'"auth module" depends-on "session store". Links let a question about one ' +
+				"reach what is known about its neighbours.",
 			parameters: {
 				type: "object",
 				properties: {

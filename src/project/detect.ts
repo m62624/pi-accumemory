@@ -56,6 +56,21 @@ export interface DetectOptions {
 	fs: ExistenceCheck;
 	flavour: PathFlavour;
 	markers?: readonly string[];
+	/**
+	 * A directory that is never a project, however it looks - the user's home.
+	 *
+	 * It has to be excluded by name rather than by marker, because pi itself
+	 * keeps `~/.pi`, and `.pi` is one of the markers. Without this, EVERY user
+	 * has a home directory that answers "yes, I am a project", so a session
+	 * started anywhere outside a real project files its facts under a project
+	 * named after the user's login. Observed live: `Stored [f0] in this project
+	 * (m62624)`.
+	 *
+	 * Excluded rather than reordered: dropping `.pi` from the markers would also
+	 * stop a real project-local `.pi/` from being recognised, which is the case
+	 * the marker exists for.
+	 */
+	home?: string;
 }
 
 /**
@@ -71,9 +86,15 @@ export async function detectProjectRoot(
 ): Promise<string | undefined> {
 	const { fs, flavour } = options;
 	const markers = options.markers ?? PROJECT_MARKERS;
+	// Compared as resolved paths so `~/x/..` and a trailing separator do not
+	// slip past the exclusion; `resolve` also settles the Windows separator and
+	// drive-letter shape, which is why the flavour is injected.
+	const home =
+		options.home === undefined ? undefined : flavour.resolve(options.home);
 
-	let current = from;
+	let current = flavour.resolve(from);
 	for (;;) {
+		if (home !== undefined && current === home) return undefined;
 		for (const marker of markers) {
 			if (await fs.exists(flavour.join(current, marker))) return current;
 		}
