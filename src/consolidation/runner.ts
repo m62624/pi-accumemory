@@ -1,0 +1,142 @@
+/**
+ * Running an idle consolidation pass.
+ *
+ * The pass reads the transcript pi already wrote to disk - no messages are
+ * duplicated into the database for this - and curates the memory from it. A
+ * cursor per project records how far it got, so a long session is digested by
+ * several small passes rather than one unliftable one.
+ *
+ * Two rules about interruption, both learned rather than invented:
+ *
+ * - **Every memory call lands on disk when the tool returns.** Nothing is
+ *   buffered until the pass "finishes", because a pass can be pre-empted at any
+ *   step and whatever it had decided by then must survive. Buffering is how the
+ *   earlier design in pi-telegram-manager lost a whole pass's worth of facts
+ *   every time somebody wrote mid-pass.
+ * - **The cursor only advances on a completed pass.** An aborted one leaves it
+ *   where it was, so the next pass re-reads the same tail; the guarded write
+ *   absorbs the repetition. Advancing early would silently skip material.
+ *
+ * The agent itself is injected. That keeps this file testable without a model,
+ * and keeps the choice of how to run one - a background session, the current
+ * one, a stub - out of the logic.
+ */
+
+import type { InstructionManager } from "../instructions/manager.ts";
+import type { Turn } from "../memory/transcript-view.ts";
+import type { MemoryController } from "../session/controller.ts";
+import type { ConsolidationSettings } from "../settings/defaults.ts";
+import type { CursorStore } from "./cursor-store.ts";
+import { ConsolidationLedger } from "./ledger.ts";
+import { passMemoryView, passPrompt, passTail } from "./pass.ts";
+import type { TranscriptCursor } from "./transcript.ts";
+
+/** The name that ends a pass. Registered only while one is running. */
+export const DONE_TOOL = "longterm_done";
+
+export interface PassAgentRequest {
+	prompt: string;
+	/** Called before each step; the returned text is appended to the prompt tail. */
+	tail(): string;
+	/** Called for every tool the pass invokes, so the ledger can see it. */
+	onToolCall(name: string, argsKey: string): void;
+	/** Called when a step produced no tool call at all. */
+	onIdleTurn(): void;
+	/** True once the ledger has decided the pass is over. */
+	finished(): boolean;
+	signal?: AbortSignal;
+}
+
+export interface PassAgent {
+	run(request: PassAgentRequest): Promise<void>;
+}
+
+export interface RunnerDeps {
+	settings: ConsolidationSettings;
+	controller: MemoryController;
+	cursors: CursorStore;
+	instructions: InstructionManager;
+	agent: PassAgent;
+	projectId: string;
+	projectLabel: string;
+	clock: () => string;
+	/** Reads the unprocessed tail; injected so the walk stays testable. */
+	readTail(cursor: TranscriptCursor | undefined): Promise<{
+		turns: Turn[];
+		cursor?: TranscriptCursor;
+	}>;
+}
+
+export interface PassOutcome {
+	ran: boolean;
+	/** Why it did not run, when it did not. */
+	reason?: string;
+	steps?: number;
+}
+
+export class ConsolidationRunner {
+	constructor(private readonly deps: RunnerDeps) {}
+
+	async runOnce(signal?: AbortSignal): Promise<PassOutcome> {
+		if (!this.deps.settings.enabled) return { ran: false, reason: "disabled" };
+
+		const cursor = await this.deps.cursors.get(this.deps.projectId);
+		const tail = await this.deps.readTail(cursor);
+		if (tail.turns.length === 0) return { ran: false, reason: "nothing new" };
+
+		const ledger = new ConsolidationLedger(this.deps.settings);
+		const memory = passMemoryView(
+			await this.deps.controller.consolidationView(queryFrom(tail.turns)),
+		);
+		const prompt = passPrompt({
+			instructions: await this.deps.instructions.read("consolidation"),
+			clock: this.deps.clock(),
+			memory,
+			transcript: tail.turns,
+			projectLabel: this.deps.projectLabel,
+		});
+
+		await this.deps.agent.run({
+			prompt,
+			tail: () => passTail(ledger),
+			onToolCall: (name, argsKey) => {
+				ledger.noteToolCall(name, argsKey);
+				if (name === DONE_TOOL) ledger.noteDone();
+				else if (isWrite(name)) ledger.noteWrite();
+			},
+			onIdleTurn: () => ledger.noteIdleTurn(),
+			finished: () => ledger.finished(),
+			...(signal === undefined ? {} : { signal }),
+		});
+
+		// Only a pass that was not cut short moves the cursor. Re-reading is
+		// absorbed by the guarded write; skipping is not recoverable.
+		if (signal?.aborted !== true && tail.cursor !== undefined) {
+			await this.deps.cursors.set(this.deps.projectId, tail.cursor);
+		}
+		return { ran: true, steps: 0 };
+	}
+}
+
+function isWrite(name: string): boolean {
+	return (
+		name === "longterm_remember" ||
+		name === "longterm_revise" ||
+		name === "longterm_forget"
+	);
+}
+
+/**
+ * What the memory is asked about before the pass starts.
+ *
+ * The newest part of the tail, because that is what the pass will be reasoning
+ * about, and because a query built from the whole tail retrieves everything and
+ * therefore distinguishes nothing.
+ */
+function queryFrom(turns: readonly Turn[]): string {
+	return turns
+		.slice(-4)
+		.map((turn) => turn.text)
+		.join("\n")
+		.slice(0, 600);
+}

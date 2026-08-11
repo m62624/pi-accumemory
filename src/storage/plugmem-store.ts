@@ -117,6 +117,18 @@ export class PlugmemStore implements WritableMemory {
 		await this.db.maintain("auto");
 	}
 
+	/**
+	 * Recomputes every vector with the currently configured embedder.
+	 *
+	 * Needed after the model or the dimension changes, and after switching the
+	 * embedder on for the first time. That last case is the quiet one: nothing
+	 * breaks, the old facts simply have no vectors, and semantic search answers
+	 * from half the memory without saying so.
+	 */
+	async reembed(): Promise<void> {
+		await this.db.reembed();
+	}
+
 	close(): void {
 		this.db.close();
 	}

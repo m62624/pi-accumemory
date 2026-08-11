@@ -20,6 +20,7 @@ import { extensionLayout } from "./layout.ts";
 import type { Turn } from "./memory/transcript-view.ts";
 import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
 import { nodeFileOps } from "./node-fs.ts";
+import { createIdleTrigger } from "./session/idle-trigger.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
 import { longtermTools } from "./tools/definitions.ts";
@@ -137,9 +138,32 @@ export default function accumemory(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", () => {
+		idle?.cancel();
 		session?.close();
 		session = undefined;
 	});
+
+	// -- the idle consolidation pass -----------------------------------------
+
+	// It starts only after a stretch of silence, and yields to the user the
+	// instant they type. Every memory call it makes has already landed on disk
+	// by then, so being cut short costs nothing but the rest of the pass.
+	const idle = createIdleTrigger({
+		quietMs: () => session?.consolidationQuietMs ?? 0,
+		run: async (signal: AbortSignal) => {
+			const runner = session?.consolidation;
+			if (runner === undefined) return;
+			try {
+				await runner.runOnce(signal);
+			} catch {
+				// A pass that fails is a pass that did not happen. The next one
+				// resumes from the same cursor.
+			}
+		},
+	});
+
+	pi.on("before_agent_start", () => idle.interrupt());
+	pi.on("agent_settled", () => idle.schedule());
 
 	// -- commands ------------------------------------------------------------
 
@@ -159,6 +183,59 @@ export default function accumemory(pi: ExtensionAPI): void {
 				...session.notices,
 			];
 			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("longterm-consolidate", {
+		description:
+			"Run the memory consolidation pass now, without waiting for a quiet period",
+		handler: async (_args, ctx) => {
+			await ready;
+			const runner = session?.consolidation;
+			if (runner === undefined) {
+				ctx.ui.notify("There is no consolidation pass to run here.", "warning");
+				return;
+			}
+			idle.interrupt();
+			const outcome = await runner.runOnce();
+			ctx.ui.notify(
+				outcome.ran
+					? "Consolidation pass finished."
+					: `Nothing to do: ${outcome.reason}.`,
+				"info",
+			);
+		},
+	});
+
+	pi.registerCommand("longterm-reembed", {
+		description:
+			"Rebuild every stored vector after changing the embedder model or dimension",
+		handler: async (_args, ctx) => {
+			await ready;
+			if (session === undefined) {
+				ctx.ui.notify(startupError ?? "Long-term memory is off.", "warning");
+				return;
+			}
+			// Every database, not just this project's: a partial reembed leaves
+			// half the memory answering in one vector space and half in another,
+			// and nothing reports that.
+			idle.interrupt();
+			ctx.ui.notify(
+				"Re-embedding every memory; this can take a while.",
+				"info",
+			);
+			try {
+				ctx.ui.notify(
+					await session.reembed((name) =>
+						ctx.ui.setStatus("longterm", `re-embedding ${name}`),
+					),
+					"info",
+				);
+			} catch (error) {
+				ctx.ui.notify(`Re-embedding failed: ${describe(error)}`, "error");
+			} finally {
+				ctx.ui.setStatus("longterm", undefined);
+			}
 		},
 	});
 }
