@@ -22,6 +22,7 @@ import { RefreshPolicy } from "../memory/refresh.ts";
 import { suggestionText, suggestTag } from "../memory/tag-suggest.ts";
 import type { Turn } from "../memory/transcript-view.ts";
 import type { NoteStore } from "../notes/store.ts";
+import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import type { Settings } from "../settings/defaults.ts";
 import { isVectorSpaceMismatch } from "../storage/errors.ts";
@@ -452,13 +453,16 @@ export class MemoryController {
 	 * five refusals.
 	 *
 	 * So every fact lands under an entity, and the default is the one from the
-	 * taxonomy: the user for shared facts, the project for project facts.
+	 * taxonomy - built by the same functions the router uses, not by a literal
+	 * spelled again here. Everything in a database shares one graph, and two
+	 * subsystems spelling the same entity two ways silently split its facts in
+	 * half; that is the whole reason those names live in one module.
 	 */
 	private defaultEntity(scope: Scope): string {
-		if (scope === "user") return "user";
+		if (scope === "user") return USER_ENTITY;
 		return this.deps.projectId === undefined
-			? "project"
-			: `project:${this.deps.projectId}`;
+			? PROJECT_TAG
+			: projectEntity(this.deps.projectId);
 	}
 
 	private readableScope(scope: Scope): ReadableMemory | undefined {
