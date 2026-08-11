@@ -18,6 +18,8 @@ import type {
 	RecallResult,
 	RememberInput,
 	RememberResult,
+	ScanFilter,
+	ScannedFact,
 	SimilarFact,
 	TagPage,
 	TagQuery,
@@ -48,7 +50,13 @@ export class FakeMemory implements WritableMemory {
 	/** Set to make the next write reject, standing in for PLUGMEM_LOCKED. */
 	failNextWrite: Error | undefined;
 
-	private nextId = 1;
+	/**
+	 * Starts at 0, because the real engine does - its first fact renders as
+	 * `[f0]`. Any code testing an id for truthiness rather than for
+	 * `undefined` breaks on exactly one fact per database, and that fact is
+	 * the oldest one.
+	 */
+	private nextId = 0;
 	private readonly now: () => number;
 	private readonly duplicateThreshold: number;
 
@@ -121,6 +129,16 @@ export class FakeMemory implements WritableMemory {
 	}
 
 	async recall(input: RecallInput): Promise<RecallResult> {
+		// A recall needs a retrieval SOURCE. Query text and anchor entities are
+		// sources; tags and `asOf` are filters over what a source produced.
+		// Against the real engine a filter-only recall returns nothing at all,
+		// and silently - so this fake returns nothing too, rather than letting
+		// a caller that gets this wrong pass its tests. Enumeration is `scan`.
+		const hasSource =
+			(input.query !== undefined && input.query.trim() !== "") ||
+			(input.entities !== undefined && input.entities.length > 0);
+		if (!hasSource) return { rendered: "", facts: [], truncated: false };
+
 		const wanted = tokenise(input.query ?? "");
 		const asOf = input.asOf;
 		let pool = this.live();
@@ -161,6 +179,25 @@ export class FakeMemory implements WritableMemory {
 			})),
 			truncated: selected.length < scored.length,
 		};
+	}
+
+	/**
+	 * Enumeration, which in the real engine is a different mechanism from
+	 * recall - and has to be here too. A tag-only `recall` returns nothing at
+	 * all against plugmem, because tags filter what a retrieval source
+	 * produced and are not a source themselves. A fake that answered such a
+	 * recall would make every caller that gets this wrong pass its tests.
+	 */
+	async scan(filter: ScanFilter = {}): Promise<ScannedFact[]> {
+		const wanted = filter.tags ?? [];
+		return this.live()
+			.filter((fact) => wanted.every((tag) => fact.tags.includes(tag)))
+			.map((fact) => ({
+				id: fact.id,
+				text: fact.text,
+				tags: [...fact.tags],
+				metadata: { ...fact.metadata },
+			}));
 	}
 
 	async get(id: number): Promise<FactCard | null> {

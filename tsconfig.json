@@ -3,7 +3,6 @@
 		"target": "ES2022",
 		"module": "ESNext",
 		"moduleResolution": "bundler",
-		"rootDir": "./src",
 		// pi loads extension sources as TypeScript directly - `main` is
 		// `src/index.ts` and `files` ships `src/**/*.ts`. There is no bundle
 		// step, so imports name the real file, extension and all, and this
@@ -19,6 +18,10 @@
 		"verbatimModuleSyntax": true,
 		"types": ["node"]
 	},
-	"include": ["src/**/*.ts"],
-	"exclude": ["dist", "tests", "node_modules", "coverage"]
+	// Tests are typechecked too. vitest strips types rather than checking
+	// them, so a test left out of this list is a test whose types nobody ever
+	// verifies - and the fakes it builds are exactly where an interface drifts
+	// away from what production actually implements.
+	"include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+	"exclude": ["dist", "node_modules", "coverage"]
 }

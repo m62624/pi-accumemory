@@ -160,16 +160,17 @@ export class NoteStore {
 
 	/** Every note, as ids and titles. Never as paths. */
 	async list(): Promise<NoteRef[]> {
-		const found = await this.memory.recall({ tags: [NOTE_TAG] });
+		// `scan`, not `recall`: listing has no query, and a tag on its own is a
+		// filter with nothing to filter - the engine answers such a recall with
+		// silence.
 		const notes: NoteRef[] = [];
-		for (const hit of found.facts) {
-			const card = await this.memory.get(hit.id);
-			const noteId = card?.metadata[NOTE_ID_KEY];
+		for (const fact of await this.memory.scan({ tags: [NOTE_TAG] })) {
+			const noteId = fact.metadata[NOTE_ID_KEY];
 			if (noteId === undefined) continue;
 			notes.push({
 				noteId,
-				title: card?.metadata[NOTE_TITLE_KEY] ?? noteId,
-				factId: hit.id,
+				title: fact.metadata[NOTE_TITLE_KEY] ?? noteId,
+				factId: fact.id,
 			});
 		}
 		return notes;

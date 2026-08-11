@@ -72,11 +72,16 @@ export class ProjectRouter {
 			tags: [ROUTE_TAG],
 			metadata: { [PROJECT_ID_KEY]: projectId, [PATH_KEY]: storedPath },
 		});
+		// The mirror of the route fact, filed under the project rather than the
+		// path. It is what answers "where does project X live", including
+		// "where did it live in March" - an entity lookup with `asOf` reaches
+		// the closed revision, which is the whole point of storing the move as
+		// a revision rather than a deletion.
 		await this.common.remember({
-			text: `Project "${storedBasename(storedPath)}" (${projectId})`,
+			text: `Project "${storedBasename(storedPath)}" (${projectId}) lives at ${storedPath}`,
 			entity: projectEntity(projectId),
 			tags: [PROJECT_TAG],
-			metadata: { [PROJECT_ID_KEY]: projectId },
+			metadata: { [PROJECT_ID_KEY]: projectId, [PATH_KEY]: storedPath },
 		});
 		await this.common.link({
 			src: pathEntity(storedPath),
@@ -148,17 +153,38 @@ export class ProjectRouter {
 			tags: [ROUTE_TAG],
 			metadata: { [PATH_KEY]: fromStoredPath, movedTo: toStoredPath },
 		});
+		// The project's own record of where it lives, revised in step with the
+		// route so an as-of lookup on either side agrees with the other.
+		const project = await this.projectFact(projectId);
+		if (project !== undefined) {
+			await this.common.revise(project.factId, {
+				text: `Project "${storedBasename(toStoredPath)}" (${projectId}) lives at ${toStoredPath}`,
+				entity: projectEntity(projectId),
+				tags: [PROJECT_TAG],
+				metadata: { [PROJECT_ID_KEY]: projectId, [PATH_KEY]: toStoredPath },
+			});
+		}
 		await this.common.checkpoint();
 		return projectId;
 	}
 
-	/** Where a project lives now, or where it lived at `asOf`. */
+	/**
+	 * Where a project lives now, or where it lived at `asOf`.
+	 *
+	 * An entity lookup, because an entity is a retrieval SOURCE and therefore
+	 * answers with `asOf` applied to it. A tag is only a filter over what a
+	 * source produced: asking for "facts tagged route as of March" returns
+	 * nothing at all, and returns it silently.
+	 */
 	async pathOf(projectId: string, asOf?: number): Promise<string | undefined> {
-		const found = await this.common.recall({ tags: [ROUTE_TAG], asOf });
+		const found = await this.common.recall({
+			entities: [projectEntity(projectId)],
+			...(asOf === undefined ? {} : { asOf }),
+		});
 		for (const hit of found.facts) {
 			const card = await this.common.get(hit.id);
-			if (card?.metadata[PROJECT_ID_KEY] === projectId)
-				return card.metadata[PATH_KEY];
+			const path = card?.metadata[PATH_KEY];
+			if (path !== undefined) return path;
 		}
 		return undefined;
 	}
@@ -171,12 +197,12 @@ export class ProjectRouter {
 	 * reads like "that project remembers nothing".
 	 */
 	async list(): Promise<KnownProject[]> {
-		const routes = await this.common.recall({ tags: [ROUTE_TAG] });
+		// Enumeration, not retrieval: there is no query here, and a tag filter
+		// with no source behind it answers nothing.
 		const projects: KnownProject[] = [];
-		for (const hit of routes.facts) {
-			const card = await this.common.get(hit.id);
-			const projectId = card?.metadata[PROJECT_ID_KEY];
-			const path = card?.metadata[PATH_KEY];
+		for (const fact of await this.common.scan({ tags: [PROJECT_TAG] })) {
+			const projectId = fact.metadata[PROJECT_ID_KEY];
+			const path = fact.metadata[PATH_KEY];
 			if (projectId === undefined || path === undefined) continue;
 			if (projects.some((project) => project.projectId === projectId)) continue;
 			projects.push({ projectId, path, name: storedBasename(path) });
@@ -210,6 +236,21 @@ export class ProjectRouter {
 
 	private async lookup(storedPath: string): Promise<string | undefined> {
 		return (await this.routeFact(storedPath))?.projectId;
+	}
+
+	/** The live fact filed under the project itself. */
+	private async projectFact(
+		projectId: string,
+	): Promise<{ factId: number } | undefined> {
+		const found = await this.common.recall({
+			entities: [projectEntity(projectId)],
+		});
+		for (const hit of found.facts) {
+			const card = await this.common.get(hit.id);
+			if (card?.metadata[PROJECT_ID_KEY] === projectId)
+				return { factId: hit.id };
+		}
+		return undefined;
 	}
 }
 

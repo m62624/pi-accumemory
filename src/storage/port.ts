@@ -118,9 +118,33 @@ export interface EdgeRef {
 	provenance?: number;
 }
 
+/** One fact as an enumeration returns it: no score, no ranking. */
+export interface ScannedFact {
+	id: number;
+	text: string;
+	tags: string[];
+	metadata: Record<string, string>;
+}
+
+export interface ScanFilter {
+	/** Keep only facts carrying all of these. */
+	tags?: string[];
+}
+
 /** Read verbs. A read-only handle offers exactly these. */
 export interface ReadableMemory {
 	recall(input: RecallInput): Promise<RecallResult>;
+	/**
+	 * Every live fact, optionally filtered by tag.
+	 *
+	 * Separate from `recall` because it answers a different question, and
+	 * because `recall` cannot answer this one: a recall needs a retrieval
+	 * *source* - query text, anchor entities or a time range - and tags are
+	 * only a filter over what a source produced. Asking `recall` for "every
+	 * fact tagged route" returns nothing at all, silently. Verified against
+	 * the engine, and the reason enumeration has its own verb.
+	 */
+	scan(filter?: ScanFilter): Promise<ScannedFact[]>;
 	get(id: number): Promise<FactCard | null>;
 	tagsOf(id: number): Promise<string[]>;
 	listTags(query?: TagQuery): Promise<TagPage>;

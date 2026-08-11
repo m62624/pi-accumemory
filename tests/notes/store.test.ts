@@ -45,7 +45,7 @@ describe("NoteStore", () => {
 		// has to survive the extension directory moving. An absolute native
 		// path in metadata breaks both.
 		await notes.create("Overview", "body");
-		const card = await memory.get(1);
+		const card = await memory.get(0);
 		expect(card?.metadata[NOTE_PATH_KEY]).toBe("n1.md");
 		expect(card?.metadata[NOTE_PATH_KEY]).not.toContain("\\");
 		expect(card?.metadata[NOTE_PATH_KEY]?.startsWith("/")).toBe(false);
@@ -67,7 +67,7 @@ describe("NoteStore", () => {
 		// One entity per note, so the duplicate detector compares a note
 		// against its own history rather than against every note there is.
 		await notes.create("Overview", "body");
-		const card = await memory.get(1);
+		const card = await memory.get(0);
 		expect(card?.tags).toContain(NOTE_TAG);
 		expect(memory.facts[0]?.entity).toBe("note:n1");
 	});
