@@ -17,7 +17,12 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { ToolSpec } from "../tools/definitions.ts";
-import { DONE_TOOL, type PassAgent, type PassAgentRequest } from "./runner.ts";
+import {
+	DONE_TOOL,
+	type PassAgent,
+	type PassAgentRequest,
+	stableKey,
+} from "./runner.ts";
 
 export interface PiPassAgentOptions {
 	cwd: string;
@@ -112,19 +117,4 @@ function doneTool(request: PassAgentRequest): ToolDefinition {
 			};
 		},
 	} as unknown as ToolDefinition;
-}
-
-/**
- * A stable signature for "the same call again".
- *
- * Key order in a parsed JSON object follows the model's output, so two
- * identical calls can serialise differently. Sorting makes the repeat
- * detectable, which is the whole point of recording it.
- */
-export function stableKey(args: Record<string, unknown>): string {
-	return JSON.stringify(
-		Object.keys(args)
-			.sort()
-			.map((key) => [key, args[key]]),
-	);
 }

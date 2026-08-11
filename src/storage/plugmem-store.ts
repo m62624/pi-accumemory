@@ -12,6 +12,7 @@
  */
 
 import { Plugmem } from "plugmem";
+import { defined } from "../tools/args.ts";
 import { needsCheckpoint } from "./errors.ts";
 import type {
 	EdgeRef,
@@ -76,7 +77,7 @@ export class PlugmemStore implements WritableMemory {
 			src: edge.src,
 			rel: edge.rel,
 			dst: edge.dst,
-			...(edge.provenance === undefined ? {} : { provenance: edge.provenance }),
+			...defined({ provenance: edge.provenance }),
 		});
 	}
 
@@ -233,20 +234,19 @@ function toOpenOptions(options: OpenOptions): {
 	dim?: number;
 	config?: string;
 } {
-	return {
-		...(options.dim === undefined ? {} : { dim: options.dim }),
-		...(options.config === undefined ? {} : { config: options.config }),
-	};
+	return defined({ dim: options.dim, config: options.config });
 }
 
 function toRememberArgs(input: RememberInput) {
 	return {
 		text: input.text,
-		...(input.entity === undefined ? {} : { entity: input.entity }),
-		...(input.tags === undefined ? {} : { tags: input.tags }),
-		...(input.links === undefined ? {} : { links: input.links }),
-		...(input.metadata === undefined ? {} : { metadata: input.metadata }),
-		...(input.validFrom === undefined ? {} : { validFrom: input.validFrom }),
+		...defined({
+			entity: input.entity,
+			tags: input.tags,
+			links: input.links,
+			metadata: input.metadata,
+			validFrom: input.validFrom,
+		}),
 	};
 }
 
@@ -254,17 +254,17 @@ async function recallVia(
 	db: Plugmem,
 	input: RecallInput,
 ): Promise<RecallResult> {
-	const result = await db.recall({
-		...(input.query === undefined ? {} : { query: input.query }),
-		...(input.tags === undefined ? {} : { tags: input.tags }),
-		...(input.entities === undefined ? {} : { entities: input.entities }),
-		...(input.k === undefined ? {} : { k: input.k }),
-		...(input.tokenBudget === undefined
-			? {}
-			: { tokenBudget: input.tokenBudget }),
-		...(input.graphDepth === undefined ? {} : { graphDepth: input.graphDepth }),
-		...(input.asOf === undefined ? {} : { asOf: input.asOf }),
-	});
+	const result = await db.recall(
+		defined({
+			query: input.query,
+			tags: input.tags,
+			entities: input.entities,
+			k: input.k,
+			tokenBudget: input.tokenBudget,
+			graphDepth: input.graphDepth,
+			asOf: input.asOf,
+		}),
+	);
 	return {
 		rendered: result.rendered,
 		truncated: result.truncated,

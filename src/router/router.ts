@@ -14,6 +14,7 @@
 
 import { isStoredPath, storedBasename } from "../paths/path-codec.ts";
 import type { WritableMemory } from "../storage/port.ts";
+import { defined } from "../tools/args.ts";
 import {
 	IDENTIFIES,
 	PATH_KEY,
@@ -179,7 +180,7 @@ export class ProjectRouter {
 	async pathOf(projectId: string, asOf?: number): Promise<string | undefined> {
 		const found = await this.common.recall({
 			entities: [projectEntity(projectId)],
-			...(asOf === undefined ? {} : { asOf }),
+			...defined({ asOf }),
 		});
 		for (const hit of found.facts) {
 			const card = await this.common.get(hit.id);

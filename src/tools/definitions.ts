@@ -19,7 +19,17 @@
  * miss on the entire prompt.
  */
 
-import type { MemoryController, Scope } from "../session/controller.ts";
+import type { MemoryController } from "../session/controller.ts";
+import {
+	defined,
+	num,
+	optNum,
+	optScope,
+	optStr,
+	scopeOf,
+	str,
+	strArray,
+} from "./args.ts";
 
 /** Every tool name, in the order they are registered. */
 export const LONGTERM_TOOL_NAMES = [
@@ -106,13 +116,13 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			},
 			run: async (args) =>
 				controller.ask({
-					question: String(args.question ?? ""),
-					...(isScope(args.scope) ? { scope: args.scope } : {}),
-					...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
-					...(typeof args.k === "number" ? { k: args.k } : {}),
-					...(typeof args.graph_depth === "number"
-						? { graphDepth: args.graph_depth }
-						: {}),
+					question: str(args.question),
+					...defined({
+						scope: optScope(args.scope),
+						tags: strArray(args.tags),
+						k: optNum(args.k),
+						graphDepth: optNum(args.graph_depth),
+					}),
 				}),
 		},
 		{
@@ -139,10 +149,7 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				required: ["project", "question"],
 			},
 			run: async (args) =>
-				controller.askProject(
-					String(args.project ?? ""),
-					String(args.question ?? ""),
-				),
+				controller.askProject(str(args.project), str(args.question)),
 		},
 		{
 			name: "longterm_projects",
@@ -191,10 +198,12 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			},
 			run: async (args) =>
 				controller.remember({
-					text: String(args.text ?? ""),
-					...(isScope(args.scope) ? { scope: args.scope } : {}),
-					...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
-					...(typeof args.entity === "string" ? { entity: args.entity } : {}),
+					text: str(args.text),
+					...defined({
+						scope: optScope(args.scope),
+						tags: strArray(args.tags),
+						entity: optStr(args.entity),
+					}),
 				}),
 		},
 		{
@@ -220,10 +229,10 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			},
 			run: async (args) =>
 				controller.revise(
-					Number(args.id),
-					String(args.text ?? ""),
-					isScope(args.scope) ? args.scope : "project",
-					Array.isArray(args.tags) ? args.tags.map(String) : undefined,
+					num(args.id),
+					str(args.text),
+					scopeOf(args.scope),
+					strArray(args.tags),
 				),
 		},
 		{
@@ -242,11 +251,7 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				},
 				required: ["id"],
 			},
-			run: async (args) =>
-				controller.forget(
-					Number(args.id),
-					isScope(args.scope) ? args.scope : "project",
-				),
+			run: async (args) => controller.forget(num(args.id), scopeOf(args.scope)),
 		},
 		{
 			name: "longterm_tags",
@@ -269,9 +274,9 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			},
 			run: async (args) =>
 				controller.listTags(
-					isScope(args.scope) ? args.scope : "project",
-					typeof args.prefix === "string" ? args.prefix : undefined,
-					typeof args.cursor === "string" ? args.cursor : undefined,
+					scopeOf(args.scope),
+					optStr(args.prefix),
+					optStr(args.cursor),
 				),
 		},
 		{
@@ -296,10 +301,10 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			},
 			run: async (args) =>
 				controller.link(
-					String(args.src ?? ""),
-					String(args.rel ?? ""),
-					String(args.dst ?? ""),
-					isScope(args.scope) ? args.scope : "project",
+					str(args.src),
+					str(args.rel),
+					str(args.dst),
+					scopeOf(args.scope),
 				),
 		},
 		{
@@ -320,10 +325,10 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			},
 			run: async (args) =>
 				controller.unlink(
-					String(args.src ?? ""),
-					String(args.rel ?? ""),
-					String(args.dst ?? ""),
-					isScope(args.scope) ? args.scope : "project",
+					str(args.src),
+					str(args.rel),
+					str(args.dst),
+					scopeOf(args.scope),
 				),
 		},
 		{
@@ -344,14 +349,9 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				required: ["title", "content"],
 			},
 			run: async (args) => {
-				const notes = controller.notes(
-					isScope(args.scope) ? args.scope : "project",
-				);
+				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
-				const created = await notes.create(
-					String(args.title ?? ""),
-					String(args.content ?? ""),
-				);
+				const created = await notes.create(str(args.title), str(args.content));
 				return `Created note ${created.noteId} ("${created.title}").`;
 			},
 		},
@@ -368,13 +368,11 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				required: ["note_id"],
 			},
 			run: async (args) => {
-				const notes = controller.notes(
-					isScope(args.scope) ? args.scope : "project",
-				);
+				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
-				const note = await notes.read(String(args.note_id ?? ""));
+				const note = await notes.read(str(args.note_id));
 				return note === undefined
-					? `There is no note ${String(args.note_id)}.`
+					? `There is no note ${str(args.note_id)}.`
 					: `# ${note.title}\n\n${note.content}`;
 			},
 		},
@@ -395,14 +393,12 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				required: ["note_id", "content"],
 			},
 			run: async (args) => {
-				const notes = controller.notes(
-					isScope(args.scope) ? args.scope : "project",
-				);
+				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
 				const updated = await notes.update(
-					String(args.note_id ?? ""),
-					String(args.content ?? ""),
-					typeof args.title === "string" ? args.title : undefined,
+					str(args.note_id),
+					str(args.content),
+					optStr(args.title),
 				);
 				return `Updated note ${updated.noteId}.`;
 			},
@@ -420,14 +416,12 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				required: ["note_id"],
 			},
 			run: async (args) => {
-				const notes = controller.notes(
-					isScope(args.scope) ? args.scope : "project",
-				);
+				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
-				const removed = await notes.remove(String(args.note_id ?? ""));
+				const removed = await notes.remove(str(args.note_id));
 				return removed
-					? `Deleted note ${String(args.note_id)}.`
-					: `There is no note ${String(args.note_id)}.`;
+					? `Deleted note ${str(args.note_id)}.`
+					: `There is no note ${str(args.note_id)}.`;
 			},
 		},
 	];
@@ -445,7 +439,3 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 const NO_PROJECT_NOTES =
 	"This directory is not a project, so it has no project notes. Use " +
 	'scope: "user" for a note about the person rather than the codebase.';
-
-function isScope(value: unknown): value is Scope {
-	return value === "project" || value === "user" || value === "both";
-}

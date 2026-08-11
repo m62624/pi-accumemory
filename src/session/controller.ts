@@ -25,6 +25,7 @@ import type { NoteStore } from "../notes/store.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import type { Settings } from "../settings/defaults.ts";
 import type { ReadableMemory, WritableMemory } from "../storage/port.ts";
+import { defined } from "../tools/args.ts";
 import { alwaysBlock, buildTail, clockLine } from "./tail.ts";
 
 /** Which memory a call is about. */
@@ -162,8 +163,10 @@ export class MemoryController {
 			const found = await memory.recall({
 				query,
 				tokenBudget: recallTokenBudget,
-				...(recallK > 0 ? { k: recallK } : {}),
-				...(graphDepth === null ? {} : { graphDepth }),
+				...defined({
+					k: recallK > 0 ? recallK : undefined,
+					graphDepth: graphDepth ?? undefined,
+				}),
 			});
 			const visible = dropVisible(found.rendered, turns);
 			const block = memoryBlock(visible, label);
@@ -213,11 +216,11 @@ export class MemoryController {
 			const found = await memory.recall({
 				query: input.question,
 				tokenBudget: this.deps.settings.memory.recallTokenBudget,
-				...(input.tags === undefined ? {} : { tags: input.tags }),
-				...(input.k === undefined ? {} : { k: input.k }),
-				...(input.graphDepth === undefined
-					? {}
-					: { graphDepth: input.graphDepth }),
+				...defined({
+					tags: input.tags,
+					k: input.k,
+					graphDepth: input.graphDepth,
+				}),
 			});
 			// Two databases are answered as two labelled sections, never fused
 			// into one ranking. plugmem's own measurements put routing ahead of
@@ -287,8 +290,7 @@ export class MemoryController {
 		const suggestions = await this.tagSuggestions(memory, input.tags ?? []);
 		const stored = await memory.rememberGuarded({
 			text: input.text,
-			...(input.entity === undefined ? {} : { entity: input.entity }),
-			...(input.tags === undefined ? {} : { tags: input.tags }),
+			...defined({ entity: input.entity, tags: input.tags }),
 		});
 		this.nudge.noteWrite();
 
@@ -314,10 +316,7 @@ export class MemoryController {
 	): Promise<string> {
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
-		const stored = await memory.revise(id, {
-			text,
-			...(tags === undefined ? {} : { tags }),
-		});
+		const stored = await memory.revise(id, { text, ...defined({ tags }) });
 		this.nudge.noteWrite();
 		return `Revised [f${id}] into [f${stored.id}]. The old version is kept as history.`;
 	}
@@ -339,10 +338,7 @@ export class MemoryController {
 	): Promise<string> {
 		const memory = this.readableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
-		const page = await memory.listTags({
-			...(prefix === undefined ? {} : { prefix }),
-			...(cursor === undefined ? {} : { cursor }),
-		});
+		const page = await memory.listTags(defined({ prefix, cursor }));
 		if (page.items.length === 0) return "No tags yet.";
 		const listed = page.items
 			.map((tag) => `${tag.name}(${tag.count})`)

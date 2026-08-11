@@ -1,0 +1,74 @@
+import { readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import { DEFAULT_SETTINGS } from "../../src/settings/defaults.ts";
+import { parseSettings } from "../../src/settings/schema.ts";
+
+/**
+ * SETTINGS.md publishes the complete default document. Documentation that
+ * drifts from the code is worse than none, because it is believed - so the
+ * published block is parsed here and compared against the real defaults.
+ */
+async function publishedExample(): Promise<string> {
+	const doc = await readFile(
+		new URL("../../SETTINGS.md", import.meta.url),
+		"utf8",
+	);
+	const block = /<!-- settings-example -->\s*```json\n([\s\S]*?)```/.exec(doc);
+	if (block?.[1] === undefined)
+		throw new Error("SETTINGS.md has no settings-example block");
+	return block[1];
+}
+
+describe("the settings example in SETTINGS.md", () => {
+	it("is valid JSON", async () => {
+		const example = await publishedExample();
+		expect(() => JSON.parse(example)).not.toThrow();
+	});
+
+	it("is accepted with no warnings, so no key in it is misspelled", async () => {
+		const { warnings } = parseSettings(
+			JSON.parse(await publishedExample()) as unknown,
+		);
+		expect(warnings).toEqual([]);
+	});
+
+	it("matches the real defaults exactly", async () => {
+		const { settings } = parseSettings(
+			JSON.parse(await publishedExample()) as unknown,
+		);
+		expect(settings).toEqual(DEFAULT_SETTINGS);
+	});
+
+	it("names every command the extension registers", async () => {
+		const doc = await readFile(
+			new URL("../../SETTINGS.md", import.meta.url),
+			"utf8",
+		);
+		for (const command of [
+			"/longterm-status",
+			"/longterm-consolidate",
+			"/longterm-reembed",
+		]) {
+			expect(doc).toContain(command);
+		}
+	});
+
+	it("warns that a project instruction file replaces the global one", async () => {
+		// The failure is silent: someone adds a project file and their global
+		// text stops applying with no message anywhere.
+		const doc = await readFile(
+			new URL("../../SETTINGS.md", import.meta.url),
+			"utf8",
+		);
+		expect(doc).toMatch(/replaces the global one.*not merged/is);
+	});
+
+	it("says which settings need a reembed", async () => {
+		const doc = await readFile(
+			new URL("../../SETTINGS.md", import.meta.url),
+			"utf8",
+		);
+		expect(doc).toMatch(/embedder\.model.*embedder\.dim/s);
+		expect(doc).toContain("/longterm-reembed");
+	});
+});

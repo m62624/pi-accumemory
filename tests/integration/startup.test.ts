@@ -1,0 +1,269 @@
+/**
+ * Bringing a real session up on a real engine, in a temporary directory.
+ *
+ * The point is the startup path specifically: a clean machine, a directory that
+ * is not a project, a second session on the same project. Each of those is a
+ * place where the extension could plausibly refuse to start, and the whole
+ * philosophy here is that it must not.
+ */
+
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { extensionLayout, projectDbName } from "../../src/layout.ts";
+import { nodeFileOps } from "../../src/node-fs.ts";
+import {
+	DEFAULT_SETTINGS,
+	type Settings,
+} from "../../src/settings/defaults.ts";
+import { type StartedSession, startSession } from "../../src/startup.ts";
+import { PlugmemStore } from "../../src/storage/plugmem-store.ts";
+
+function settingsWith(patch: (draft: Settings) => void): Settings {
+	const draft = structuredClone(DEFAULT_SETTINGS);
+	patch(draft);
+	return draft;
+}
+
+describe("startSession", () => {
+	let root: string;
+	let agentDir: string;
+	let project: string;
+	const started: StartedSession[] = [];
+	const extra: { close(): void }[] = [];
+
+	beforeEach(async () => {
+		root = await mkdtemp(path.join(tmpdir(), "pi-accumemory-start-"));
+		agentDir = path.join(root, "agent");
+		project = path.join(root, "app");
+		await mkdir(path.join(project, ".git"), { recursive: true });
+	});
+
+	afterEach(async () => {
+		for (const session of started.splice(0)) session.close();
+		for (const handle of extra.splice(0)) {
+			try {
+				handle.close();
+			} catch {
+				// Already closed.
+			}
+		}
+		await rm(root, { recursive: true, force: true });
+	});
+
+	async function start(
+		cwd: string,
+		settings = DEFAULT_SETTINGS,
+	): Promise<StartedSession> {
+		const session = await startSession({
+			settings,
+			layout: extensionLayout(agentDir, path),
+			fs: nodeFileOps,
+			pathModule: path,
+			agentDir,
+			cwd,
+		});
+		started.push(session);
+		return session;
+	}
+
+	it("starts on a completely clean machine", async () => {
+		// The database has no published snapshot yet, which a read-only open
+		// rejects outright. Without the checkpoint fallback the very first
+		// session anyone runs fails, before any project is even resolved.
+		const session = await start(project);
+		expect(session.projectId).toBeDefined();
+		expect(session.projectRoot).toBe(project);
+	});
+
+	it("writes the plugmem config and the instruction defaults", async () => {
+		await start(project);
+		const layout = extensionLayout(agentDir, path);
+		expect(await nodeFileOps.readFile(layout.configToml)).toContain("[engine]");
+		expect(
+			await nodeFileOps.readFile(
+				path.join(layout.instructionsDefaultsDir, "secrets.md"),
+			),
+		).toMatch(/never store/i);
+	});
+
+	it("gives the same project the same id on the next session", async () => {
+		const first = await start(project);
+		first.close();
+		started.pop();
+		const second = await start(project);
+		expect(second.projectId).toBe(first.projectId);
+	});
+
+	it("creates no project database outside a project", async () => {
+		// One database per visited directory turns the workspace into a
+		// junkyard, and each junk file then has to be explained to somebody.
+		const session = await start(root);
+		expect(session.projectId).toBeUndefined();
+		expect(session.notices.join(" ")).toMatch(/not a project/i);
+	});
+
+	it("runs without project memory when another session holds it", async () => {
+		const first = await start(project);
+		const layout = extensionLayout(agentDir, path);
+		expect(first.projectId).toBeDefined();
+
+		// A second session in the same project: the project writer is taken.
+		const second = await startSession({
+			settings: DEFAULT_SETTINGS,
+			layout,
+			fs: nodeFileOps,
+			pathModule: path,
+			agentDir,
+			cwd: project,
+		});
+		started.push(second);
+		expect(second.notices.join(" ")).toMatch(/another session/i);
+		// The shared memory still answers, which is the point of the read-only
+		// handle: it takes a shared lock and blocks nobody.
+		await expect(second.controller.projects()).resolves.toContain("app");
+	});
+
+	it("stores a fact and finds it again in a new session", async () => {
+		const first = await start(project);
+		await first.controller.remember({
+			text: "the cache is off because of a warmup race",
+		});
+		first.close();
+		started.pop();
+
+		const second = await start(project);
+		expect(
+			await second.controller.ask({ question: "why is the cache off" }),
+		).toContain("warmup");
+	});
+
+	it("keeps a fact about the user visible from a different project", async () => {
+		const other = path.join(root, "other");
+		await mkdir(path.join(other, ".git"), { recursive: true });
+
+		const first = await start(project);
+		await first.controller.remember({
+			text: "prefers Rust for systems work",
+			scope: "user",
+		});
+		first.close();
+		started.pop();
+
+		const second = await start(other);
+		expect(
+			await second.controller.ask({
+				question: "which language for systems work",
+				scope: "user",
+			}),
+		).toContain("Rust");
+	});
+
+	it("answers a question put to another project, while it is open", async () => {
+		const api = path.join(root, "api");
+		await mkdir(path.join(api, ".git"), { recursive: true });
+
+		const apiSession = await start(api);
+		await apiSession.controller.remember({
+			text: "auth here uses a signed cookie rather than a JWT",
+		});
+		const apiId = apiSession.projectId;
+		expect(apiId).toBeDefined();
+
+		// Deliberately left OPEN: a cross-project question has to work while
+		// somebody is working in that project, and it does because the reader
+		// takes a shared lock.
+		const appSession = await start(project);
+		const answer = await appSession.controller.askProject(
+			"api",
+			"how is auth done",
+		);
+		expect(answer).toContain("signed cookie");
+	});
+
+	it("reports an unknown project rather than answering emptily", async () => {
+		const session = await start(project);
+		const answer = await session.controller.askProject("ghost", "anything");
+		expect(answer).toMatch(/no project named "ghost"/i);
+	});
+
+	it("says the embedder is off, once", async () => {
+		const session = await start(project);
+		expect(session.notices.join(" ")).toMatch(/embedder is off/i);
+	});
+
+	it("has no consolidation pass outside a project", async () => {
+		const session = await start(root);
+		expect(session.consolidation).toBeUndefined();
+		expect(session.consolidationQuietMs).toBe(0);
+	});
+
+	it("disables the idle timer when consolidation is switched off", async () => {
+		const session = await start(
+			project,
+			settingsWith((draft) => {
+				draft.memory.consolidation.enabled = false;
+			}),
+		);
+		expect(session.consolidationQuietMs).toBe(0);
+	});
+
+	it("says there is nothing to rebuild when no embedder is configured", async () => {
+		// Better than the engine's own error, which arrives after the command
+		// has already told the user it started.
+		const session = await start(project);
+		expect(await session.reembed()).toMatch(/no embedder configured/i);
+	});
+
+	it("refuses an embedder that plugmem would refuse, before opening anything", async () => {
+		await expect(
+			start(
+				project,
+				settingsWith((draft) => {
+					draft.memory.embedder.enabled = true;
+					draft.memory.embedder.url = "";
+				}),
+			),
+		).rejects.toThrow(/memory\.embedder\.url/);
+	});
+
+	it("prefers a project-local instruction append over the global one", async () => {
+		const layout = extensionLayout(agentDir, path);
+		await mkdir(layout.instructionsAppendDir, { recursive: true });
+		await writeFile(
+			path.join(layout.instructionsAppendDir, "memory.md"),
+			"global text",
+		);
+		const projectAppend = path.join(
+			project,
+			".pi",
+			"pi-accumemory",
+			"instructions",
+			"append",
+		);
+		await mkdir(projectAppend, { recursive: true });
+		await writeFile(path.join(projectAppend, "memory.md"), "project text");
+
+		const session = await start(project);
+		const text = await session.instructions.read("memory");
+		expect(text).toContain("project text");
+		expect(text).not.toContain("global text");
+	});
+
+	it("leaves an existing database openable by a plain writer afterwards", async () => {
+		// Nothing here holds a lock it does not release, which is what lets the
+		// CLI be used for debugging between sessions.
+		const session = await start(project);
+		const id = session.projectId ?? "";
+		session.close();
+		started.pop();
+
+		const layout = extensionLayout(agentDir, path);
+		const writer = await PlugmemStore.open(
+			path.join(layout.memoryDir, "db", `${projectDbName(id)}.plugmem`),
+		);
+		extra.push(writer);
+		await expect(writer.stats()).resolves.toBeDefined();
+	});
+});

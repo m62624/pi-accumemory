@@ -32,6 +32,7 @@ import { ProjectRouter } from "./router/router.ts";
 import { MemoryController } from "./session/controller.ts";
 import { clockLine } from "./session/tail.ts";
 import type { Settings } from "./settings/defaults.ts";
+import { CheckpointingStore } from "./storage/checkpointing-store.ts";
 import { CommonStore, type LeasedWriter } from "./storage/common-store.ts";
 import { buildPlugmemConfig, validateEmbedder } from "./storage/config-toml.ts";
 import { isLocked } from "./storage/errors.ts";
@@ -120,18 +121,24 @@ export async function startSession(
 	const projectRoot = await detectProjectRoot(cwd, { fs, flavour: pathModule });
 
 	let projectId: string | undefined;
-	let project: PlugmemStore | undefined;
+	let projectWriter: PlugmemStore | undefined;
+	let project: CheckpointingStore | undefined;
 	if (projectRoot !== undefined) {
 		const resolved = await router.resolve(
 			toStoredPath(projectRoot, pathModule),
 		);
 		projectId = resolved.projectId;
 		try {
-			project = await PlugmemStore.open(
+			projectWriter = await PlugmemStore.open(
 				dbPath(projectDbName(projectId)),
 				openOptions,
 			);
-			closers.push(() => project?.close());
+			closers.push(() => projectWriter?.close());
+			// Every write publishes. A project database that is written but
+			// never checkpointed cannot be opened read-only from anywhere -
+			// which is precisely what a cross-project question does.
+			project = new CheckpointingStore(projectWriter);
+			await projectWriter.checkpoint();
 		} catch (error) {
 			// Another session in the same project holds the writer. Saying so
 			// once is honest; pretending the memory works is not.
@@ -251,6 +258,15 @@ export async function startSession(
 		consolidationQuietMs:
 			consolidation === undefined ? 0 : settings.memory.consolidation.quietMs,
 		reembed: async (onProgress) => {
+			// Recomputing vectors needs a provider to compute them with. Saying
+			// so beats the engine's own error, which arrives after the command
+			// has already announced that it started.
+			if (!settings.memory.embedder.enabled) {
+				return (
+					"There is no embedder configured, so there are no vectors to rebuild. " +
+					"See SETTINGS.md to switch one on, then run this again."
+				);
+			}
 			// Every database in the workspace, because a partial reembed leaves
 			// half the memory answering in one vector space and half in another.
 			const names = [COMMON_DB, ...(await listDbNames(fs, pathModule, layout))];

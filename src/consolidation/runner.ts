@@ -140,3 +140,18 @@ function queryFrom(turns: readonly Turn[]): string {
 		.join("\n")
 		.slice(0, 600);
 }
+
+/**
+ * A stable signature for "the same call again".
+ *
+ * Key order in a parsed JSON object follows the model's output, so two
+ * identical calls can serialise differently. Sorting makes the repeat
+ * detectable, which is the entire point of recording it.
+ */
+export function stableKey(args: Record<string, unknown>): string {
+	return JSON.stringify(
+		Object.keys(args)
+			.sort()
+			.map((key) => [key, args[key]]),
+	);
+}
