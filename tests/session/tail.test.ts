@@ -14,22 +14,45 @@ describe("buildTail", () => {
 		expect(tail.indexOf("[Now: X]")).toBeLessThan(tail.indexOf("facts"));
 	});
 
-	it("puts the nudges last, because a model acts on what it read last", () => {
+	it("puts the nudge last, because a model acts on what it read last", () => {
 		const tail = buildTail({
 			clock: "[Now: X]",
 			block: "facts",
 			alwaysInstructions: "rules",
 			writeNudge: "save something",
+		});
+		const order = ["[Now: X]", "facts", "rules", "save something"].map((part) =>
+			tail.indexOf(part),
+		);
+		expect(order).toEqual([...order].sort((a, b) => a - b));
+	});
+
+	it("shows exactly one nudge, even when both are due", () => {
+		// Two requests for two different actions, one after the other, are a
+		// choice the model must resolve before it can do anything - and it
+		// resolves it by position rather than by merit.
+		const tail = buildTail({
+			clock: "[Now: X]",
+			writeNudge: "save something",
 			askHint: "ask memory",
 		});
-		const order = [
-			"[Now: X]",
-			"facts",
-			"rules",
-			"save something",
+		expect(tail).toContain("save something");
+		expect(tail).not.toContain("ask memory");
+	});
+
+	it("prefers the write reminder, because a fact not stored is gone", () => {
+		// A question not asked can be asked next turn; a fact not stored ends
+		// with the session.
+		expect(
+			buildTail({ writeNudge: "save something", askHint: "ask memory" }),
+		).toBe("save something");
+	});
+
+	it("still shows the ask hint when it is the only one due", () => {
+		expect(buildTail({ askHint: "ask memory" })).toBe("ask memory");
+		expect(buildTail({ writeNudge: "   ", askHint: "ask memory" })).toBe(
 			"ask memory",
-		].map((part) => tail.indexOf(part));
-		expect(order).toEqual([...order].sort((a, b) => a - b));
+		);
 	});
 
 	it("skips absent parts without leaving blank gaps", () => {

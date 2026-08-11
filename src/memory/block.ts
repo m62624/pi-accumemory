@@ -40,50 +40,64 @@ export function dropVisible(rendered: string, turns: readonly Turn[]): string {
 	return kept.join("\n").trim();
 }
 
+/** One memory's contribution to the block. */
+export interface BlockSection {
+	/** Which memory, as the model must pass it back. */
+	scope: "project" | "user";
+	/** What a person calls that memory. */
+	label: string;
+	/** The engine's rendered recall for it. */
+	rendered: string;
+}
+
 /**
- * Wraps a rendered recall for the prompt, or returns `""` when it is empty.
+ * Everything recalled this turn, as ONE block.
  *
- * The empty case matters more than it looks: a standing heading with nothing
- * under it is a tax on every turn of every project with no memory yet, and it
- * teaches the model that this section is usually noise.
+ * One, not one per memory, and that is the point of the function. Wrapping each
+ * memory separately printed the same ninety-word explanation twice, with
+ * `scope: "project"` between the copies and `scope: "user"` after them - so a
+ * model reading top to bottom could attach either footer to either half. The
+ * ids are per-database and choosing the wrong scope addresses a different fact,
+ * so that ambiguity was expensive in exactly the place it could least afford to
+ * be.
  *
- * The wording says three things, in this order, because a model acts on the
- * last instruction it read: this is your own memory (not something the user
- * said), it may be off-target (ignoring it is allowed), and if it is on target
- * then do not ask for what it already tells you.
+ * Now: one heading, sections labelled with the scope their ids belong to, and
+ * one explanation at the end. The explanation says three things in this order,
+ * because a model acts on the last instruction it read - this is your own
+ * memory, it may be off-target, and if it is on target do not ask for what it
+ * already tells you.
+ *
+ * Empty in, empty out. A standing heading with nothing under it is a tax on
+ * every turn of every project with no memory yet, and it teaches the model that
+ * this section is usually noise.
  */
-export function memoryBlock(
-	rendered: string,
-	scopeLabel: string,
-	scope?: "project" | "user",
-): string {
-	const body = rendered.trim();
-	if (body === "") return "";
-	// The scope is named on the heading and again beside the ids, because the
-	// ids are per-database: a model that reads [f3] here and passes it with the
-	// other scope addresses a different fact, or none. Naming it once was not
-	// enough - the heading is far from the line by the time an id is copied.
-	const heading =
-		scope === undefined
-			? `What you remember about ${scopeLabel}, retrieved for the messages above:`
-			: `What you remember about ${scopeLabel} - these ids are scope: "${scope}":`;
-	return [
-		heading,
-		"",
-		body,
+export function memoryBlock(sections: readonly BlockSection[]): string {
+	const filled = sections
+		.map((section) => ({ ...section, rendered: withoutOwnHeading(section) }))
+		.filter((section) => section.rendered !== "");
+	if (filled.length === 0) return "";
+
+	const parts: string[] = [
+		"What you remember, retrieved for the messages above.",
+	];
+	for (const section of filled) {
+		parts.push(
+			"",
+			`--- ${section.label} - the ids below are scope: "${section.scope}" ---`,
+			section.rendered,
+		);
+	}
+	parts.push(
 		"",
 		"This is your own long-term memory, carried over from earlier sessions - not " +
 			"something anyone just said, and not something the user can see. It is " +
 			"retrieved by relevance and may be off-target: if none of it bears on the " +
 			"work above, ignore it entirely and proceed as if it were not here. If it " +
 			"does bear on the work, use it, and do not ask for anything it already " +
-			"tells you. Never answer this block or comment on its contents unless the " +
-			`user raised the subject.${
-				scope === undefined
-					? ""
-					: ` To change one of these facts, pass scope: "${scope}" with its [fN].`
-			}`,
-	].join("\n");
+			"tells you. To change one of these facts, pass its [fN] together with the " +
+			"scope written above the section you read it in.",
+	);
+	return parts.join("\n");
 }
 
 export interface ManifestScope {
@@ -139,6 +153,23 @@ export function consolidationBlock(rendered: string): string {
 			"the fact itself is the sentence, while the dates say when it has held and " +
 			"#tags say how it is filed; never copy those into a fact you write.",
 	].join("\n");
+}
+
+/**
+ * Drops the engine's own `## memory` heading from a rendered recall.
+ *
+ * It heads a block that is one memory. Here it is one section of a block that
+ * labels its own sections, so it arrives once per section - and a marker
+ * repeated inside a block is the thing that makes a reader ask whether this is
+ * one block or two. Ours names which memory; the engine's does not, so ours is
+ * the one to keep.
+ */
+function withoutOwnHeading(section: BlockSection): string {
+	return section.rendered
+		.split("\n")
+		.filter((line) => line.trim() !== "## memory")
+		.join("\n")
+		.trim();
 }
 
 /** A rendered recall is one bullet per fact; this is a bullet. */

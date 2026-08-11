@@ -60,10 +60,13 @@ const SCOPE_PARAM = {
 	type: "string",
 	enum: ["project", "user", "both"],
 	description:
-		'"project" (default) for facts about this codebase, "user" for facts about the ' +
-		"person that hold in every project. When unsure choose project: a wrong fact " +
-		"there stays local, while a wrong fact in the user memory is read at the start " +
-		"of every session of every project.",
+		'Optional here, and "project" when you leave it out. "project" is about this ' +
+		'codebase; "user" is about the person and holds in every project; "both" reads ' +
+		"from the two of them and cannot be written to. When unsure choose project: a " +
+		"wrong fact there stays local, while a wrong fact in the user memory is read at " +
+		"the start of every session of every project. NOTE that longterm_revise and " +
+		"longterm_forget REQUIRE this argument and have no default - see their own " +
+		"description.",
 } as const;
 
 /**

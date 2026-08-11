@@ -83,11 +83,12 @@ describe("MemoryController.revise", () => {
 	it("refuses a write addressed to both memories at once", async () => {
 		// "Both" is a reading scope. Writing the same fact to both stores would
 		// leave two copies that drift apart, and revising one leaves the other
-		// lying.
-		const { controller } = build();
-		expect(await controller.remember({ text: "x", scope: "both" })).toMatch(
-			/not a project/i,
-		);
+		// lying. What the refusal SAYS is asserted below, under its own
+		// heading - this only fixes that it refuses.
+		const { controller, project, common } = build();
+		await controller.remember({ text: "x", scope: "both" });
+		expect(project?.live()).toHaveLength(0);
+		expect(common.live()).toHaveLength(0);
 	});
 });
 
@@ -378,6 +379,27 @@ describe("clearing several facts at once", () => {
 		controller.noteUserMessage();
 		expect(await controller.forget([99], "project")).not.toMatch(
 			/second time/i,
+		);
+	});
+});
+
+describe("a write addressed at both memories", () => {
+	it("says which scope to choose, not that this is not a project", async () => {
+		// The old answer was "this directory is not a project", which is a lie
+		// whenever it is one - and unactionable either way, naming neither the
+		// real reason nor the next move.
+		const { controller } = build();
+		const answer = await controller.remember({ text: "a fact", scope: "both" });
+		expect(answer).not.toMatch(/not a project/i);
+		expect(answer).toMatch(/reads from both memories/i);
+		expect(answer).toContain('scope: "project"');
+		expect(answer).toContain('scope: "user"');
+	});
+
+	it("still says 'not a project' when that is genuinely the reason", async () => {
+		const { controller } = build({ withProject: false });
+		expect(await controller.remember({ text: "a fact" })).toMatch(
+			/not a project/i,
 		);
 	});
 });

@@ -13,11 +13,15 @@
  *    and stale facts never get retired.
  * 2. **the memory block** - the substance.
  * 3. **always-instructions** - the model's own standing rules.
- * 4. **the write reminder**, if due.
- * 5. **the ask hint**, if due.
+ * 4. **one nudge**, if any is due.
  *
- * The nudges come last because a model acts on the last thing it read, and
- * they are the parts that ask for an action.
+ * The nudge comes last because a model acts on the last thing it read, and it
+ * is the part that asks for an action. Exactly ONE of them, for the same
+ * reason: two requests for two different actions, one after the other, are a
+ * choice the model has to make before it can do anything - and it makes it by
+ * position, not by merit. The write reminder wins because a fact not stored is
+ * gone at the end of the session, while a question not asked can be asked next
+ * turn.
  *
  * The clock lives INSIDE this message rather than in one of its own. A separate
  * message carrying the time gets read as somebody speaking - pi-telegram-manager
@@ -35,13 +39,11 @@ export interface TailParts {
 
 /** Joins the parts that are present. Empty when none are. */
 export function buildTail(parts: TailParts): string {
-	const sections = [
-		parts.clock,
-		parts.block,
-		parts.alwaysInstructions,
-		parts.writeNudge,
-		parts.askHint,
-	]
+	// At most one nudge, and the write reminder outranks the ask hint. See the
+	// note at the top of this file.
+	const nudge =
+		(parts.writeNudge ?? "").trim() !== "" ? parts.writeNudge : parts.askHint;
+	const sections = [parts.clock, parts.block, parts.alwaysInstructions, nudge]
 		.map((section) => section?.trim() ?? "")
 		.filter((section) => section !== "");
 	return sections.join("\n\n");

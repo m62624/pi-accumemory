@@ -10,6 +10,7 @@
 
 import { AskGuard } from "../memory/ask-guard.ts";
 import {
+	type BlockSection,
 	consolidationBlock,
 	dropVisible,
 	type ManifestScope,
@@ -187,8 +188,8 @@ export class MemoryController {
 			: recallQuery(turns, queryMaxChars);
 		if (query.trim() === "") return "";
 
-		const sections: string[] = [];
-		for (const [factScope, label, memory] of this.readableScopes()) {
+		const sections: BlockSection[] = [];
+		for (const [scope, label, memory] of this.readableScopes()) {
 			const found = await memory.recall({
 				query,
 				tokenBudget: recallTokenBudget,
@@ -197,11 +198,15 @@ export class MemoryController {
 					graphDepth: graphDepth ?? undefined,
 				}),
 			});
-			const visible = dropVisible(found.rendered, turns);
-			const block = memoryBlock(visible, label, factScope);
-			if (block !== "") sections.push(block);
+			sections.push({
+				scope,
+				label,
+				rendered: dropVisible(found.rendered, turns),
+			});
 		}
-		return sections.join("\n\n");
+		// One block for both memories - see `memoryBlock` for why wrapping each
+		// one separately was worse than it looked.
+		return memoryBlock(sections);
 	}
 
 	private async manifest(): Promise<string> {
@@ -355,7 +360,7 @@ export class MemoryController {
 
 	async remember(input: RememberInputForModel): Promise<string> {
 		const scope = input.scope ?? "project";
-		if (scope === "both") return this.noProjectMessage();
+		if (scope === "both") return BOTH_IS_A_READING_SCOPE;
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 
@@ -749,6 +754,21 @@ const whichMemory = (verb: string, id: number): string =>
 	"exists in both and means two different things. Look at the heading above the " +
 	`line you read it under, then call longterm_${verb} again with scope: "project" ` +
 	'(this codebase) or scope: "user" (the shared memory about the person).';
+
+/**
+ * The answer to a write addressed at both memories.
+ *
+ * It used to be "this directory is not a project", which is a lie whenever the
+ * directory IS one - and unactionable either way, since it names neither the
+ * real reason nor the next move. `both` is a reading scope; a fact lives in one
+ * memory, because two copies drift apart and revising one leaves the other
+ * lying.
+ */
+const BOTH_IS_A_READING_SCOPE =
+	'scope: "both" reads from both memories; it cannot write to them. A fact ' +
+	"lives in exactly one: two copies drift apart, and revising one leaves the " +
+	'other lying. Choose scope: "project" (about this codebase) or scope: "user" ' +
+	"(about the person, true in every project) and call again.";
 
 const MISMATCHED_PROJECT = (name: string): string =>
 	`Project "${name}" was last written with a different embedding model, and its ` +

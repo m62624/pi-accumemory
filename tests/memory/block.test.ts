@@ -57,23 +57,65 @@ describe("dropVisible", () => {
 });
 
 describe("memoryBlock", () => {
-	it("produces nothing for an empty recall", () => {
+	const project = {
+		scope: "project" as const,
+		label: "this project (app)",
+		rendered,
+	};
+	const user = {
+		scope: "user" as const,
+		label: "your memory about the user",
+		rendered: "## memory\n- [f3] user: prefers Rust (2026-05; active)",
+	};
+
+	it("produces nothing when nothing was recalled", () => {
 		// An empty section is a tax charged on every turn, and it teaches the
 		// model that the memory heading is usually noise.
-		expect(memoryBlock("", "this project")).toBe("");
-		expect(memoryBlock("   \n  ", "this project")).toBe("");
+		expect(memoryBlock([])).toBe("");
+		expect(memoryBlock([{ ...project, rendered: "   \n  " }])).toBe("");
 	});
 
 	it("says whose memory it is, that it may miss, and not to re-ask", () => {
-		const block = memoryBlock(rendered, "this project");
+		const block = memoryBlock([project]);
 		expect(block).toContain(rendered);
 		expect(block).toMatch(/your own long-term memory/i);
 		expect(block).toMatch(/ignore/i);
 		expect(block).toMatch(/do not ask/i);
 	});
 
-	it("names the scope it was retrieved from", () => {
-		expect(memoryBlock(rendered, "this project")).toContain("this project");
+	it("explains itself exactly once, however many memories answered", () => {
+		// Wrapping each memory separately printed the same ninety words twice,
+		// with one scope named between the copies and the other after them - so
+		// a model reading top to bottom could attach either footer to either
+		// half. The ids are per-memory, so that ambiguity picks the wrong fact.
+		const block = memoryBlock([project, user]);
+		expect(block.split("your own long-term memory")).toHaveLength(2);
+		expect(block.split("What you remember")).toHaveLength(2);
+	});
+
+	it("labels every section with the scope its ids belong to", () => {
+		const block = memoryBlock([project, user]);
+		expect(block).toContain(
+			'this project (app) - the ids below are scope: "project"',
+		);
+		expect(block).toContain(
+			'your memory about the user - the ids below are scope: "user"',
+		);
+		// In the order given: project first, so the safer memory to write to is
+		// the one nearest the model's own reply.
+		expect(block.indexOf("[f0]")).toBeLessThan(block.indexOf("[f3]"));
+	});
+
+	it("drops a memory that answered nothing, keeping the one that did", () => {
+		const block = memoryBlock([{ ...project, rendered: "" }, user]);
+		expect(block).not.toContain("this project (app)");
+		expect(block).toContain("[f3]");
+	});
+
+	it("tells the model how to act on an id it reads there", () => {
+		expect(memoryBlock([project])).toMatch(
+			/pass its \[fN\] together with the scope written above the section/i,
+		);
 	});
 });
 
