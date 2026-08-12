@@ -50,6 +50,11 @@ export class CheckpointingStore implements WritableMemory {
 		return this.published(() => this.inner.forget(id));
 	}
 
+	async forgetMany(ids: readonly number[]): Promise<boolean[]> {
+		// One publication for the batch, which is the point of the batch.
+		return this.published(() => this.inner.forgetMany(ids));
+	}
+
 	async link(edge: EdgeRef): Promise<void> {
 		return this.published(() => this.inner.link(edge));
 	}

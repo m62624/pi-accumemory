@@ -218,6 +218,20 @@ export interface WritableMemory extends ReadableMemory {
 	rememberGuarded(input: RememberInput): Promise<GuardedRememberResult>;
 	revise(id: number, input: RememberInput): Promise<RememberResult>;
 	forget(id: number): Promise<boolean>;
+	/**
+	 * Forgets several facts as one write, answering per id in order.
+	 *
+	 * Not a loop over `forget` written shorter. Every single forget syncs the
+	 * journal and runs the engine's post-write policy, and on the shared memory
+	 * it also takes and releases the cross-session lease and publishes a
+	 * snapshot - so clearing four duplicates paid all of that four times. Here
+	 * it is paid once.
+	 *
+	 * The ordering guarantee is what lets a caller zip the answers back onto
+	 * the ids it read the text of beforehand, which is the only way anyone can
+	 * still be told what went away.
+	 */
+	forgetMany(ids: readonly number[]): Promise<boolean[]>;
 	link(edge: EdgeRef): Promise<void>;
 	unlink(edge: Omit<EdgeRef, "provenance">): Promise<boolean>;
 	/**

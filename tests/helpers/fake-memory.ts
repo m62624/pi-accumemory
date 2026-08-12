@@ -51,6 +51,12 @@ export class FakeMemory implements WritableMemory {
 	failNextWrite: Error | undefined;
 	/** How many maintenance passes ran; nothing else reclaims space. */
 	maintains = 0;
+	/**
+	 * `forgetMany` calls, so a test can tell one write from a loop of them.
+	 * The engine charges a journal sync per call, and the shared memory a
+	 * lease and a snapshot, so the count IS the cost.
+	 */
+	batchedForgets = 0;
 	/** Vector slots reported by `stats()`; set it to model a partial embedding. */
 	vectors = 0;
 	/** Set to make every recall reject, standing in for a vector space mismatch. */
@@ -139,6 +145,14 @@ export class FakeMemory implements WritableMemory {
 		if (fact === undefined) return false;
 		fact.tombstoned = true;
 		return true;
+	}
+
+	async forgetMany(ids: readonly number[]): Promise<boolean[]> {
+		this.throwIfArmed();
+		this.batchedForgets += 1;
+		const answers: boolean[] = [];
+		for (const id of ids) answers.push(await this.forget(id));
+		return answers;
 	}
 
 	async link(edge: EdgeRef): Promise<void> {

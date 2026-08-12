@@ -174,6 +174,13 @@ export class CommonStore implements WritableMemory {
 		return this.withWriteLease((writer) => writer.forget(id));
 	}
 
+	async forgetMany(ids: readonly number[]): Promise<boolean[]> {
+		// The lease is the expensive part here - a lock another session may be
+		// holding, plus a snapshot on the way out - so a batch of forgets is
+		// worth far more on this store than on a private one.
+		return this.withWriteLease((writer) => writer.forgetMany(ids));
+	}
+
 	async link(edge: EdgeRef): Promise<void> {
 		return this.withWriteLease((writer) => writer.link(edge));
 	}

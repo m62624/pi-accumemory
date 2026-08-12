@@ -754,17 +754,22 @@ export class MemoryController {
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 
+		// Read BEFORE closing anything, because afterwards there is nothing to
+		// read: a forgotten fact leaves recall at once. This is the only moment
+		// at which anyone - the person watching or the model that asked - can
+		// still be told what it was that went away.
+		const texts: string[] = [];
+		for (const id of ids) texts.push((await memory.get(id))?.text ?? "");
+
+		// One write for the whole list. `forgetMany` answers in the order it
+		// was asked, which is what lets the texts above line back up with it.
+		const closed = await memory.forgetMany(ids);
 		const dropped: FactLine[] = [];
 		const absent: number[] = [];
-		for (const id of ids) {
-			// Read BEFORE closing it, because afterwards there is nothing to
-			// read: a forgotten fact leaves recall at once. This is the only
-			// moment at which anyone - the person watching or the model that
-			// asked - can still be told what it was that went away.
-			const card = await memory.get(id);
-			if (await memory.forget(id)) dropped.push({ id, text: card?.text ?? "" });
+		ids.forEach((id, at) => {
+			if (closed[at] === true) dropped.push({ id, text: texts[at] ?? "" });
 			else absent.push(id);
-		}
+		});
 		if (dropped.length > 0) {
 			this.noteWrote();
 			for (const { id } of dropped) {

@@ -73,6 +73,12 @@ export class PlugmemStore implements WritableMemory {
 		return this.db.forget(id);
 	}
 
+	async forgetMany(ids: readonly number[]): Promise<boolean[]> {
+		// The engine's own batch, added in plugmem 0.11: one journal sync and
+		// one post-write policy pass for the whole list.
+		return this.db.forgetMany([...ids]);
+	}
+
 	async link(edge: EdgeRef): Promise<void> {
 		await this.db.link({
 			src: edge.src,

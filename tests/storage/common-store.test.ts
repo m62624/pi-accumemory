@@ -54,6 +54,7 @@ function harness(options: { lockUntilAttempt?: number } = {}) {
 			rememberGuarded: (input) => backing.rememberGuarded(input),
 			revise: (id, input) => backing.revise(id, input),
 			forget: (id) => backing.forget(id),
+			forgetMany: (ids) => backing.forgetMany(ids),
 			link: (edge) => backing.link(edge),
 			unlink: (edge) => backing.unlink(edge),
 			// A writer reads the live state, not a pinned snapshot: this is the

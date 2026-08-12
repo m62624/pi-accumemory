@@ -352,6 +352,18 @@ describe("clearing several facts at once", () => {
 		expect(project?.live()).toHaveLength(0);
 	});
 
+	it("spends one write on the whole list, not one per id", async () => {
+		// The engine syncs its journal and runs its post-write policy per call,
+		// and the shared memory also takes a cross-session lease and publishes
+		// a snapshot per call. Four duplicates used to pay all of that four
+		// times. `forgetMany` (plugmem 0.11) is what makes it once.
+		const { controller, project } = build();
+		for (const text of ["fact one", "fact two", "fact three"])
+			await controller.remember({ text });
+		await controller.forget([0, 1, 2], "project");
+		expect(project?.batchedForgets).toBe(1);
+	});
+
 	it("reports each id that was not there, and drops the rest anyway", async () => {
 		const { controller, project } = build();
 		const stored = await controller.remember({ text: "a durable fact" });
