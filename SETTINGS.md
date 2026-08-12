@@ -66,6 +66,10 @@ day it does not.
 				"enabled": true,
 				"sampleSize": 12
 			},
+			"habits": {
+				"enabled": true,
+				"afterSessions": 3
+			},
 			"maintain": true
 		},
 		"crossProject": {
@@ -160,6 +164,8 @@ is already saved.
 | `consolidation.promoteToCommon` | `true` | lets the pass move a fact confirmed in several projects into the shared memory |
 | `consolidation.review.enabled` | `true` | the pass's **second phase**: re-reading the oldest stored facts. See below |
 | `consolidation.review.sampleSize` | `12` | the review window: how many old facts one pass looks at, per memory. A **floor** — see below |
+| `consolidation.habits.enabled` | `true` | the pass's **third phase**: a mistake the model has repeated across sessions. See below |
+| `consolidation.habits.afterSessions` | `3` | separate sessions a mistake must appear in before it is raised |
 | `consolidation.maintain` | `true` | reclaim the disk of forgotten facts at the end of a pass |
 
 ## The second phase — `consolidation.review.*`
@@ -209,6 +215,50 @@ both the floor and the ceiling.
 The window is also *fetched* as a window. The engine pages at 128 facts and
 answers a page in 0.3 ms; reading to the end of ten thousand facts costs 23 ms
 and builds ten thousand objects to throw all but the window away.
+
+## The third phase — `consolidation.habits.*`
+
+The first two phases curate what the memory *knows*. This one is about how the
+model *uses* it.
+
+Inside one session, a failing call that is sent twice gets a sharper answer and a
+third gets a hard stop. None of that survives the session. So a model that opens
+five sessions in a row with the same wrong call is corrected five times and
+learns nothing — every correction dies with the process that issued it.
+
+The runtime therefore names its own refusals — `id_without_scope`,
+`duplicate_refused`, and four others — and counts them in
+`state/stumbles.json`. It counts **sessions, not calls**: a kind is credited with
+a session only once it happens twice inside it, because one mistake is not a
+habit and twenty in one sitting are still one sitting.
+
+Above `afterSessions`, the pass shows the model that one habit and asks it to
+write **one** standing rule about it — a fact tagged `instruction` + `always`,
+stored in the memory about the user, read at the top of every turn of every later
+session. One habit per pass, never four: each rule is charged to every future
+request.
+
+Nothing here writes anything. Deciding the habit does not deserve a rule is a
+legitimate outcome, and the phase says so — a phase that cannot end in "no" is a
+machine for manufacturing rules.
+
+### The ceiling is enforced, not requested
+
+A standing rule is the only thing the model can write that costs it context
+forever. So `instructions.alwaysMax` and `instructions.alwaysMaxChars` are a
+**hard limit**: a rule that the always-block could not show is refused at the
+write, and the refusal lists the rules already standing so that replacing one is
+reachable. Ordinary facts are untouched by this — only the `instruction` +
+`always` pair.
+
+### When a rule does not work
+
+A kind is marked covered once a rule has been written, so no second one is
+proposed for it — but counting continues. A habit that goes on after its rule is
+not a model that will not learn: it is a rule saying the wrong thing, or a tool
+behaving differently from its description. Writing a third commandment would
+spend permanent context to hide our own bug, so `/longterm-status` reports it to
+you instead.
 
 ## Reclaiming disk — `consolidation.maintain`
 

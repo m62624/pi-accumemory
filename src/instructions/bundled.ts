@@ -314,7 +314,15 @@ So, in order:
 Tag with \`instruction\` any rule you are writing for your future self. Add
 \`always\` as well only for a rule that must hold in every session regardless of
 what is being worked on - those are injected unconditionally, and there is room
-for very few.`;
+for very few.
+
+The room is a real limit, not advice: a rule tagged both that does not fit
+alongside the ones already standing is REFUSED rather than stored, and the
+refusal lists them. That is deliberate. Those rules are pasted into the head of
+every request you will ever make, so they are the one thing you can write that
+costs you context in every future session, and the cost is paid whether or not
+the rule turns out to be worth it. Keep them few and short, or replace one with
+\`longterm_revise\`.`;
 
 const secrets = `# Never store credentials
 

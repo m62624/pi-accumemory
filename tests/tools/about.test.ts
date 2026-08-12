@@ -27,6 +27,24 @@ function desk(overrides: Partial<typeof DEFAULT_SETTINGS.memory> = {}) {
 	return new AboutDesk({ settings, hasEnv: (name) => name === "SET_ONE" });
 }
 
+/** Every dotted key under an object, leaves only: `embedder.dim`, and so on. */
+function leafKeys(value: object, prefix = ""): string[] {
+	const keys: string[] = [];
+	for (const [key, nested] of Object.entries(value)) {
+		const dotted = prefix === "" ? key : `${prefix}.${key}`;
+		if (
+			typeof nested === "object" &&
+			nested !== null &&
+			!Array.isArray(nested)
+		) {
+			keys.push(...leafKeys(nested, dotted));
+		} else {
+			keys.push(dotted);
+		}
+	}
+	return keys;
+}
+
 describe("the pages", () => {
 	it("has a document for every topic but the generated one", () => {
 		for (const topic of ABOUT_TOPICS) {
@@ -123,6 +141,45 @@ describe("current_settings", () => {
 		const page = readAbout(desk({ writeOutput: "full" }), "current_settings");
 		expect(page).toContain("writeOutput: full");
 		expect(page).toContain("consolidation.review.sampleSize: 12");
+	});
+
+	it("names every setting there is, so no key is only discoverable by luck", () => {
+		// The failure this prevents is silent: a setting added to the defaults
+		// and not to the page exists, works, and is invisible to the one reader
+		// who would tell the user about it.
+		const page = readAbout(desk(), "current_settings");
+		for (const leaf of leafKeys(DEFAULT_SETTINGS.memory)) {
+			expect(page, `${leaf} is missing from current_settings`).toContain(leaf);
+		}
+	});
+
+	it("prints the real paths rather than describing where they usually are", () => {
+		const page = readAbout(
+			new AboutDesk({
+				settings: structuredClone(DEFAULT_SETTINGS),
+				paths: {
+					settingsFile: "/home/someone/.pi/extensions/accumemory/settings.json",
+					memoryDir: "/home/someone/.pi/extensions/accumemory/memory",
+				},
+			}),
+			"current_settings",
+		);
+		expect(page).toContain(
+			"/home/someone/.pi/extensions/accumemory/settings.json",
+		);
+		expect(page).toContain("/home/someone/.pi/extensions/accumemory/memory");
+	});
+
+	it("admits it does not know a path rather than inventing one", () => {
+		const page = readAbout(desk(), "current_settings");
+		expect(page).toContain("not known in this session");
+	});
+
+	it("sends the reader to current_settings for the location", () => {
+		// The settings page must not name a path: it ships with the package and
+		// the path differs per installation.
+		expect(ABOUT_PAGES.settings).toContain("current_settings");
+		expect(ABOUT_PAGES.settings).not.toMatch(/\/home\/|C:\\\\/);
 	});
 
 	it("says a key variable by NAME and whether it is set, never its value", () => {

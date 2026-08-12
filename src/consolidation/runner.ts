@@ -25,8 +25,10 @@
 import type { InstructionManager } from "../instructions/manager.ts";
 import type { Turn } from "../memory/transcript-view.ts";
 import type { MemoryController } from "../session/controller.ts";
+import type { StumbleLog } from "../session/stumbles.ts";
 import type { ConsolidationSettings } from "../settings/defaults.ts";
 import type { CursorStore } from "./cursor-store.ts";
+import { habitsPrompt } from "./habits.ts";
 import { ConsolidationLedger } from "./ledger.ts";
 import { passMemoryView, passPrompt, passTail } from "./pass.ts";
 import { nextCursor, type ReviewWindow, reviewPrompt } from "./review.ts";
@@ -82,6 +84,18 @@ export interface RunnerDeps {
 		turns: Turn[];
 		cursor?: TranscriptCursor;
 	}>;
+	/**
+	 * Mistakes counted across sessions. Absent means the habits phase is off.
+	 */
+	stumbles?: StumbleLog;
+	/**
+	 * The cap on standing rules, quoted to the model in the habits phase.
+	 *
+	 * Quoted rather than merely enforced: a model told to be brief and then
+	 * refused for length has wasted a step, and it cannot see the limit from
+	 * anywhere else.
+	 */
+	alwaysLimits: { alwaysMax: number; alwaysMaxChars: number };
 }
 
 export interface PassOutcome {
@@ -109,6 +123,7 @@ export class ConsolidationRunner {
 
 		const transcript = await this.readPhase(signal);
 		const reviewed = await this.reviewPhase(signal);
+		const habit = await this.habitsPhase(signal);
 
 		// Reclaim what either phase forgot. Last, because it is the only step
 		// that is about bytes rather than about content, and because both
@@ -117,7 +132,7 @@ export class ConsolidationRunner {
 			await this.deps.controller.maintain();
 		}
 
-		if (transcript || reviewed) return { ran: true, steps: 0 };
+		if (transcript || reviewed || habit) return { ran: true, steps: 0 };
 		return { ran: false, reason: "nothing new" };
 	}
 
@@ -203,6 +218,49 @@ export class ConsolidationRunner {
 				nextCursor(windows),
 			);
 		}
+		return true;
+	}
+
+	/**
+	 * Phase three: one mistake this model has made in several sessions.
+	 *
+	 * Last of the three, and the only one that can go a long time without
+	 * running at all - which is the correct shape. The first two phases have
+	 * material almost every pass; this one has material only when something is
+	 * actually going wrong, and a phase that fires on nothing would be a phase
+	 * that invents a habit to have something to say.
+	 *
+	 * The kind is marked covered whether or not a rule was written. If the model
+	 * judged it not worth one, asking again next pass would be asking a decided
+	 * question - and the counter keeps running either way, so a habit that
+	 * outlives the decision still reaches `/longterm-status`.
+	 */
+	private async habitsPhase(signal?: AbortSignal): Promise<boolean> {
+		const settings = this.deps.settings.habits;
+		const log = this.deps.stumbles;
+		if (log === undefined || !settings.enabled || settings.afterSessions <= 0) {
+			return false;
+		}
+		const habit = await log.worstUncovered(settings.afterSessions);
+		if (habit === undefined) return false;
+
+		const standing = (await this.deps.controller.alwaysRules()).map(
+			(rule) => rule.text,
+		);
+		const ledger = new ConsolidationLedger(this.deps.settings);
+		await this.run(
+			habitsPrompt({
+				clock: this.deps.clock(),
+				habit,
+				standing,
+				limits: this.deps.alwaysLimits,
+			}),
+			ledger,
+			signal,
+		);
+		// Not on an interrupted pass: the model may not have got as far as
+		// deciding, and marking it covered would close the question silently.
+		if (signal?.aborted !== true) await log.markCovered(habit.kind);
 		return true;
 	}
 

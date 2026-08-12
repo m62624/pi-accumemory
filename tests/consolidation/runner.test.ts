@@ -15,6 +15,7 @@ import type { Turn } from "../../src/memory/transcript-view.ts";
 import { NoteStore } from "../../src/notes/store.ts";
 import { ProjectRouter } from "../../src/router/router.ts";
 import { MemoryController } from "../../src/session/controller.ts";
+import { REPEATS_PER_SESSION, StumbleLog } from "../../src/session/stumbles.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings/defaults.ts";
 import { FakeFs } from "../helpers/fake-fs.ts";
 import { FakeMemory } from "../helpers/fake-memory.ts";
@@ -50,6 +51,7 @@ function build(
 		turns?: Turn[];
 		enabled?: boolean;
 		settings?: Partial<typeof DEFAULT_SETTINGS.memory.consolidation>;
+		stumbles?: StumbleLog;
 	} = {},
 ) {
 	const common = new FakeMemory();
@@ -92,6 +94,8 @@ function build(
 			cursors,
 			instructions,
 			agent,
+			alwaysLimits: DEFAULT_SETTINGS.memory.instructions,
+			...(options.stumbles === undefined ? {} : { stumbles: options.stumbles }),
 			cursorKey: "p1",
 			label: "this project (app)",
 			reviewCursor,
@@ -324,5 +328,92 @@ describe("reclaiming space", () => {
 		const { runner, project } = build({ settings: { maintain: false } });
 		await runner(scriptedAgent([[DONE_TOOL, ""]])).runOnce();
 		expect(project.maintains).toBe(0);
+	});
+});
+
+/**
+ * The third phase. Everything here is about it staying quiet: it is the only
+ * phase whose output is charged to every future request, so the interesting
+ * cases are the ones where it must NOT run.
+ */
+describe("the habits phase", () => {
+	async function withHabit(
+		sessions: number,
+	): Promise<{ fs: FakeFs; log: StumbleLog }> {
+		const fs = new FakeFs();
+		const make = (id: string) =>
+			new StumbleLog({
+				fs,
+				file: "/ext/stumbles.json",
+				flavour: path.posix,
+				sessionId: id,
+			});
+		for (let session = 0; session < sessions; session++) {
+			const one = make(`s${session}`);
+			for (let i = 0; i < REPEATS_PER_SESSION; i++) {
+				await one.note("id_without_scope");
+			}
+		}
+		return { fs, log: make("current") };
+	}
+
+	it("stays out of the way when nothing is being repeated", async () => {
+		const { log } = await withHabit(0);
+		const { runner } = build({ turns: [], stumbles: log });
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		expect((await runner(agent).runOnce()).ran).toBe(false);
+		expect(agent.prompts).toHaveLength(0);
+	});
+
+	it("stays out of the way below the threshold", async () => {
+		const { log } = await withHabit(2);
+		const { runner } = build({ turns: [], stumbles: log });
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		expect((await runner(agent).runOnce()).ran).toBe(false);
+	});
+
+	it("raises the habit once it is one, even with an empty transcript", async () => {
+		// The point of it being its own phase: an idle machine with nothing new
+		// to read is exactly when there is room for this.
+		const { log } = await withHabit(3);
+		const { runner } = build({ turns: [], stumbles: log });
+		const agent = scriptedAgent([[DONE_TOOL, ""]]);
+		expect((await runner(agent).runOnce()).ran).toBe(true);
+		expect(agent.prompts[0]).toContain("In 3 different sessions");
+	});
+
+	it("does not raise the same habit twice", async () => {
+		const { log } = await withHabit(3);
+		const { runner } = build({ turns: [], stumbles: log });
+		await runner(scriptedAgent([[DONE_TOOL, ""]])).runOnce();
+		const second = scriptedAgent([[DONE_TOOL, ""]]);
+		expect((await runner(second).runOnce()).ran).toBe(false);
+		expect(second.prompts).toHaveLength(0);
+	});
+
+	it("leaves the question open when the pass was interrupted", async () => {
+		// The model may not have got as far as deciding, and marking it settled
+		// would close the question with nothing written.
+		const { log } = await withHabit(3);
+		const { runner } = build({ turns: [], stumbles: log });
+		const aborted = new AbortController();
+		aborted.abort();
+		await runner(scriptedAgent([[DONE_TOOL, ""]])).runOnce(aborted.signal);
+		expect(await log.worstUncovered(3)).toBeDefined();
+	});
+
+	it("can be switched off on its own", async () => {
+		const { log } = await withHabit(5);
+		const { runner } = build({
+			turns: [],
+			stumbles: log,
+			settings: { habits: { enabled: false, afterSessions: 3 } },
+		});
+		expect((await runner(scriptedAgent([])).runOnce()).ran).toBe(false);
+	});
+
+	it("does nothing at all without a log, which is a session without one", async () => {
+		const { runner } = build({ turns: [] });
+		expect((await runner(scriptedAgent([])).runOnce()).ran).toBe(false);
 	});
 });

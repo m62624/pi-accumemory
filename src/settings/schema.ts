@@ -88,6 +88,10 @@ const SCHEMA: Record<string, FieldSpec> = {
 						kind: "section",
 						fields: { enabled: BOOL, sampleSize: COUNT },
 					},
+					habits: {
+						kind: "section",
+						fields: { enabled: BOOL, afterSessions: COUNT },
+					},
 					maintain: BOOL,
 				},
 			},

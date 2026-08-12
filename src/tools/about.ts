@@ -71,6 +71,20 @@ export interface AboutDeps {
 	 * caller can hand a value back into a page by accident.
 	 */
 	hasEnv?: (name: string) => boolean;
+	/**
+	 * Where the settings actually live on THIS machine, and where the databases
+	 * are - both resolved by the same code that opened them.
+	 *
+	 * Prose cannot say this. The location is derived at startup from pi's agent
+	 * directory, so a page describing it in words is describing one installation
+	 * and guessing at every other. A model asked "where do I change that" then
+	 * either invents a path or sends the user hunting.
+	 *
+	 * So the paths come from `layout`, which is the single place that computed
+	 * them. Neither is a secret - the user is the one who would edit them - and
+	 * neither is guessed.
+	 */
+	paths?: { settingsFile: string; memoryDir: string };
 }
 
 /**
@@ -111,19 +125,33 @@ export class AboutDesk {
 	private currentSettings(): string {
 		const { memory, timezone } = this.deps.settings;
 		const { embedder, consolidation, refresh, nudge } = memory;
+		const { paths } = this.deps;
 		const lines = [
 			"# What this session is running with",
 			"",
-			"Read from settings.json when the session started. Nothing said in this",
-			"conversation changes any of it; the user edits the file and restarts Pi.",
+			"Read when the session started. Nothing said in this conversation changes any",
+			"of it: the user edits the file below and restarts Pi.",
+			"",
+			"## Where it lives",
+			`- settings file: ${paths?.settingsFile ?? "not known in this session"}`,
+			`- databases: ${paths?.memoryDir ?? "not known in this session"}`,
+			"",
+			"Those are the real paths on this machine, resolved by the code that opened",
+			"them - not a guess and not a convention. If the settings file is not there,",
+			"it has never been written and every value below is the built-in default.",
 			"",
 			"## Memory",
 			`- enabled: ${memory.enabled}`,
 			`- writeOutput: ${memory.writeOutput} (what the USER's terminal shows; you always get everything)`,
 			`- recallTokenBudget: ${memory.recallTokenBudget}`,
 			`- recallK: ${memory.recallK}`,
+			`- queryMaxChars: ${memory.queryMaxChars}`,
 			`- graphDepth: ${memory.graphDepth ?? "engine default"}`,
 			`- manifest: ${memory.manifest}`,
+			`- crossProject.enabled: ${memory.crossProject.enabled}`,
+			`- instructions.alwaysMax: ${memory.instructions.alwaysMax}`,
+			`- instructions.alwaysMaxChars: ${memory.instructions.alwaysMaxChars}`,
+			`- notes.overviewMaxChars: ${memory.notes.overviewMaxChars}`,
 			`- timezone: ${timezone ?? "the machine's own"}`,
 			"",
 			"## Semantic search",
@@ -132,6 +160,7 @@ export class AboutDesk {
 					? ""
 					: " - WITHOUT VECTORS a question worded differently from the stored fact will not find it"
 			}`,
+			`- embedder.url: ${embedder.url}`,
 			`- embedder.model: ${embedder.model}`,
 			`- embedder.dim: ${embedder.dim}`,
 			`- embedder.spaceId: ${embedder.spaceId ?? "the model name"}`,
@@ -154,9 +183,12 @@ export class AboutDesk {
 			`- consolidation.quietMs: ${consolidation.quietMs} (${Math.round(consolidation.quietMs / 60_000)} minutes of quiet)`,
 			`- consolidation.maxSteps: ${consolidation.maxSteps}`,
 			`- consolidation.maxNudges: ${consolidation.maxNudges}`,
+			`- consolidation.maxTranscriptChars: ${consolidation.maxTranscriptChars}`,
 			`- consolidation.promoteToCommon: ${consolidation.promoteToCommon}`,
 			`- consolidation.review.enabled: ${consolidation.review.enabled}`,
 			`- consolidation.review.sampleSize: ${consolidation.review.sampleSize}`,
+			`- consolidation.habits.enabled: ${consolidation.habits.enabled}`,
+			`- consolidation.habits.afterSessions: ${consolidation.habits.afterSessions}`,
 			`- consolidation.maintain: ${consolidation.maintain}`,
 		];
 		return lines.join("\n");

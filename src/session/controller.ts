@@ -40,6 +40,7 @@ import {
 } from "../storage/port.ts";
 import { AboutDesk } from "../tools/about.ts";
 import { defined } from "../tools/args.ts";
+import type { StumbleKind, StumbleLog } from "./stumbles.ts";
 import { alwaysBlock, buildTail, clockLine } from "./tail.ts";
 
 /** Which memory a call is about. */
@@ -83,6 +84,21 @@ export interface ControllerDeps {
 	 * caller can hand a secret back through it.
 	 */
 	hasEnv?: (name: string) => boolean;
+	/**
+	 * Real paths on this machine, for `longterm_about`'s settings pages.
+	 *
+	 * Passed rather than described, because only `layout` knows them - see
+	 * `AboutDeps`.
+	 */
+	paths?: { settingsFile: string; memoryDir: string };
+	/**
+	 * Where repeated mistakes are counted across sessions.
+	 *
+	 * Optional: a session without one behaves exactly as before, and every
+	 * refusal reads the same. Nothing here changes what the model is told - the
+	 * log only decides what a later consolidation pass is shown.
+	 */
+	stumbles?: StumbleLog;
 }
 
 export interface AskInput {
@@ -131,7 +147,7 @@ export class MemoryController {
 		this.manifestPending = deps.settings.memory.manifest;
 		this.about = new AboutDesk({
 			settings: deps.settings,
-			...defined({ hasEnv: deps.hasEnv }),
+			...defined({ hasEnv: deps.hasEnv, paths: deps.paths }),
 		});
 	}
 
@@ -145,6 +161,22 @@ export class MemoryController {
 		this.repeatGuard.reset();
 		// A new request may be about something the model has not read about yet.
 		this.about.reset();
+	}
+
+	/**
+	 * Records a named mistake, when this installation is counting them.
+	 *
+	 * Never awaited for its result and never able to fail a call: every caller
+	 * is inside a refusal that was already written, and a refusal that becomes
+	 * an exception because a JSON file was busy would be a far worse bug than
+	 * the habit it was trying to notice.
+	 */
+	private async stumbled(kind: StumbleKind): Promise<void> {
+		try {
+			await this.deps.stumbles?.note(kind);
+		} catch {
+			// See above.
+		}
 	}
 
 	noteToolCall(name: string): void {
@@ -251,15 +283,76 @@ export class MemoryController {
 	 * file this design set out to avoid, arriving one fact at a time.
 	 */
 	private async alwaysInstructions(): Promise<string> {
-		const rules: string[] = [];
-		for (const [, , memory] of this.readableScopes()) {
+		const rules = (await this.alwaysRules()).map((rule) => rule.text);
+		return alwaysBlock(rules, this.deps.settings.memory.instructions);
+	}
+
+	/** Every standing rule, with its id and memory, in block order. */
+	async alwaysRules(): Promise<
+		{ id: number; text: string; scope: Exclude<Scope, "both"> }[]
+	> {
+		const rules: { id: number; text: string; scope: Exclude<Scope, "both"> }[] =
+			[];
+		for (const [scope, , memory] of this.readableScopes()) {
 			for (const fact of await memory.scan({
 				tags: [INSTRUCTION_TAG, ALWAYS_TAG],
 			})) {
-				rules.push(fact.text);
+				rules.push({ id: fact.id, text: fact.text, scope });
 			}
 		}
-		return alwaysBlock(rules, this.deps.settings.memory.instructions);
+		return rules;
+	}
+
+	/**
+	 * Refuses a standing rule that the always-block could not show anyway.
+	 *
+	 * A fact tagged `instruction` + `always` is not an ordinary fact: it is
+	 * pasted into the head of EVERY request of every later session, forever. It
+	 * is the one thing in this extension the model can write that costs the
+	 * model context, which makes it the one thing the model must not be trusted
+	 * to bound. The instruction file says keep them few and short; a file cannot
+	 * enforce anything.
+	 *
+	 * The test is exact rather than arbitrary: render the block WITH the new
+	 * rule and see whether it survives {@link alwaysBlock}'s own limits. A rule
+	 * the block would drop is a write that changes nothing, so it is refused
+	 * before it is stored - and the refusal names the rules already there, so
+	 * the answer ("revise one of them") is reachable.
+	 *
+	 * Returns the refusal text, or `undefined` when the rule fits.
+	 */
+	private async wouldOverflowAlways(
+		text: string,
+		/** The rule being replaced, which must not be counted against itself. */
+		replacing?: { id: number; scope: Exclude<Scope, "both"> },
+	): Promise<string | undefined> {
+		const held = (await this.alwaysRules()).filter(
+			(rule) =>
+				replacing === undefined ||
+				rule.id !== replacing.id ||
+				rule.scope !== replacing.scope,
+		);
+		const limits = this.deps.settings.memory.instructions;
+		const candidate = [...held.map((rule) => rule.text), text];
+		if (alwaysBlock(candidate, limits).includes(`- ${text.trim()}`)) {
+			return undefined;
+		}
+		const listed = held.map(
+			(rule) => `  [f${rule.id}] (scope: "${rule.scope}") ${rule.text}`,
+		);
+		return [
+			"Not stored. Standing rules are pasted into the head of every request of " +
+				`every future session, so this installation shows at most ${limits.alwaysMax} of ` +
+				`them and at most ${limits.alwaysMaxChars} characters. Yours does not fit, which ` +
+				"means storing it would cost a write and change nothing.",
+			held.length === 0 ? "" : "The rules already standing:",
+			...listed,
+			"Either make yours shorter, or decide it matters more than one of those and " +
+				"replace that one with longterm_revise. Do not store this as an ordinary " +
+				"fact instead - a rule nobody reads is worse than no rule.",
+		]
+			.filter((line) => line !== "")
+			.join("\n");
 	}
 
 	// -- pull ----------------------------------------------------------------
@@ -268,6 +361,7 @@ export class MemoryController {
 		const scope = input.scope ?? "project";
 		const repeat = this.askGuard.check(input.question);
 		this.askGuard.record(input.question);
+		if (repeat !== undefined) await this.stumbled("asked_the_same_question");
 
 		const sections: string[] = [];
 		for (const [factScope, label, memory] of this.readableScopes(scope)) {
@@ -384,9 +478,17 @@ export class MemoryController {
 
 	async remember(input: RememberInputForModel): Promise<string> {
 		const scope = input.scope ?? "project";
-		if (scope === "both") return BOTH_IS_A_READING_SCOPE;
+		if (scope === "both") {
+			await this.stumbled("wrote_to_a_reading_scope");
+			return BOTH_IS_A_READING_SCOPE;
+		}
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
+
+		if (isStandingRule(input.tags)) {
+			const overflow = await this.wouldOverflowAlways(input.text);
+			if (overflow !== undefined) return overflow;
+		}
 
 		const suggestions = await this.tagSuggestions(memory, input.tags ?? []);
 		const entity = input.entity ?? this.defaultEntity(scope);
@@ -398,6 +500,7 @@ export class MemoryController {
 		this.noteWrote();
 
 		if (stored.status === "blocked") {
+			await this.stumbled("duplicate_refused");
 			// The refusal names WHAT it collided with, not just the ids. A bare
 			// list of numbers leaves the model with two guesses - rephrase, or
 			// revise - and no way to tell which, so it usually just sends the
@@ -540,12 +643,20 @@ export class MemoryController {
 		scope: Scope | undefined,
 		tags?: string[],
 	): Promise<string> {
-		if (scope === undefined || scope === "both")
+		if (scope === undefined || scope === "both") {
+			await this.stumbled("id_without_scope");
 			return whichMemory("revise", id);
+		}
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
-		if ((await memory.get(id)) === null)
-			return this.missing(id, scope, "revise");
+		const current = await memory.get(id);
+		if (current === null) return this.missing(id, scope, "revise");
+		// A standing rule can be made longer by a revision as easily as by a
+		// write, and the block it has to fit in is the same one.
+		if (isStandingRule(tags ?? current.tags)) {
+			const overflow = await this.wouldOverflowAlways(text, { id, scope });
+			if (overflow !== undefined) return overflow;
+		}
 		const stored = await memory.revise(id, { text, ...defined({ tags }) });
 		this.noteWrote();
 		return `Revised [f${id}] into [f${stored.id}] in ${this.label(scope)}. The old version is kept as history.`;
@@ -565,8 +676,10 @@ export class MemoryController {
 		scope: Scope | undefined,
 	): Promise<string> {
 		if (ids.length === 0) return "No ids given: pass the number inside [fN].";
-		if (scope === undefined || scope === "both")
+		if (scope === undefined || scope === "both") {
+			await this.stumbled("id_without_scope");
 			return whichMemory("forget", ids[0] ?? 0);
+		}
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 
@@ -630,12 +743,14 @@ export class MemoryController {
 			);
 		}
 		if (found === null) {
+			await this.stumbled("id_not_there");
 			return (
 				`${head} It was never there, or it was forgotten in an earlier session. ` +
 				"Do not repeat this call: the answer will not change. If you are working " +
 				"from a list of ids, go on to the next one."
 			);
 		}
+		await this.stumbled("id_in_the_other_memory");
 		return (
 			`${head} The other memory (${this.label(other)}) does have [f${id}]: ` +
 			`"${found.text}". If that is the one you meant, call longterm_${verb} again ` +
@@ -865,6 +980,17 @@ const BOTH_IS_A_READING_SCOPE =
 	"lives in exactly one: two copies drift apart, and revising one leaves the " +
 	'other lying. Choose scope: "project" (about this codebase) or scope: "user" ' +
 	"(about the person, true in every project) and call again.";
+
+/**
+ * Whether a write is a standing rule rather than a fact.
+ *
+ * Both tags, not either. `instruction` alone is a fact about how to work that
+ * the model finds by asking; only `always` puts it in the head of every request,
+ * and only that costs context nobody chose to spend.
+ */
+function isStandingRule(tags: readonly string[] | undefined): boolean {
+	return tags?.includes(INSTRUCTION_TAG) === true && tags.includes(ALWAYS_TAG);
+}
 
 const MISMATCHED_PROJECT = (name: string): string =>
 	`Project "${name}" was last written with a different embedding model, and its ` +

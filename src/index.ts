@@ -29,6 +29,7 @@ import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
 import { nodeFileOps } from "./node-fs.ts";
 import { withHead } from "./session/head.ts";
 import { createIdleTrigger } from "./session/idle-trigger.ts";
+import { unfixableNotice } from "./session/stumbles.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
 import { longtermTools } from "./tools/definitions.ts";
@@ -223,6 +224,14 @@ export default function accumemory(pi: ExtensionAPI): void {
 				await session.controller.projects(),
 				...session.notices,
 			];
+			// Only when there is something wrong that the memory could not fix
+			// by itself. See `unfixableNotice`.
+			const stuck = unfixableNotice(
+				await session.stumbles.unfixable(
+					session.settings.memory.consolidation.habits.afterSessions,
+				),
+			);
+			if (stuck !== "") lines.push("", stuck);
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});

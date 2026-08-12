@@ -441,8 +441,19 @@ not a failure to reach it - the next pass resumes from the same place.`,
 
 	settings: `# How this extension is configured
 
-Everything lives in \`settings.json\` in the Pi agent directory. Ask for the
-\`current_settings\` topic to see what this session is actually running with.
+Everything lives in one \`settings.json\`. **Its exact path on this machine is
+printed by the \`current_settings\` topic** - ask for that rather than describing
+where it "usually" is, because the location is derived from the Pi agent
+directory and differs between installations. That topic also prints where the
+databases are, and the value every setting below currently has.
+
+The file may not exist. That is not a fault: absent means every value is the
+built-in default, and creating it with only the keys being changed is the normal
+way to configure this.
+
+An unknown key is reported as a warning and ignored; a value of the wrong type
+stops the extension with the full dotted path in the message. That difference is
+deliberate - a typo should not silently become a behaviour.
 
 ## You cannot change any of it from a conversation
 
@@ -484,12 +495,23 @@ a compaction.
 how long it stays quiet afterwards.
 
 **\`memory.consolidation\`** - the idle pass. \`quietMs\` before it starts,
-\`maxSteps\` and \`maxNudges\` as its budget, \`promoteToCommon\`,
-\`review.enabled\` and \`review.sampleSize\` for the second phase, \`maintain\`
-for reclaiming disk at the end.
+\`maxSteps\` and \`maxNudges\` as its budget, \`maxTranscriptChars\` for how much
+transcript one pass reads, \`promoteToCommon\`, \`review.enabled\` and
+\`review.sampleSize\` for the second phase, \`habits.enabled\` and
+\`habits.afterSessions\` for the third, \`maintain\` for reclaiming disk at the
+end.
 
-**\`memory.instructions\`** and **\`memory.notes\`** - size limits on the
-instruction facts and on the note overview.
+**\`memory.crossProject.enabled\`** - whether another project's memory may be
+read from here at all.
+
+**\`memory.instructions\`** - \`alwaysMax\` and \`alwaysMaxChars\`: how many
+standing rules are shown, and how many characters of them. This one has teeth:
+a rule tagged \`instruction\` + \`always\` that would not fit is REFUSED when you
+try to store it, because those are pasted into the head of every request forever
+and a rule nobody reads is worse than no rule.
+
+**\`memory.notes.overviewMaxChars\`** and **\`memory.queryMaxChars\`** - size
+limits on the note overview and on the text a recall is built from.
 
 **\`timezone\`** - the zone behind the clock you are given.
 

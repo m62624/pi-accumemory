@@ -40,6 +40,8 @@ export interface ExtensionLayout {
 	consolidationStateFile: string;
 	/** How far the review phase has walked each memory. */
 	reviewStateFile: string;
+	/** Mistakes this model has repeated, counted across sessions. */
+	stumbleStateFile: string;
 	settingsFile: string;
 }
 
@@ -69,6 +71,7 @@ export function extensionLayout(
 		stateDir,
 		consolidationStateFile: join(stateDir, "consolidation.json"),
 		reviewStateFile: join(stateDir, "review.json"),
+		stumbleStateFile: join(stateDir, "stumbles.json"),
 		settingsFile: join(root, "settings.json"),
 	};
 }

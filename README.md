@@ -78,6 +78,10 @@ answer is a document in this package instead: eight topics (`system`, `turn`,
 one per call, three per turn. The pages can be long because only the turn that
 asks for one pays for it, which is what the always-on instructions can never do.
 
+`current_settings` prints the real path of the settings file and of the
+databases, resolved by the code that opened them - so the model answers "where do
+I change that" with a path rather than a convention.
+
 Commands: `/longterm-status`, `/longterm-consolidate`, `/longterm-reembed`.
 
 ## What it will not store
@@ -100,6 +104,8 @@ stricter.
   instructions/defaults/         ours, rewritten on upgrade
   instructions/append/           yours, never touched
   state/consolidation.json       how far the background pass has read
+  state/review.json              how far the review phase has walked
+  state/stumbles.json            mistakes repeated across sessions
 ```
 
 Paths inside the databases are stored in one canonical form — forward slashes,

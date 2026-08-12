@@ -82,6 +82,25 @@ export interface ReviewSettings {
 	sampleSize: number;
 }
 
+/**
+ * The third phase: a mistake the model has repeated across sessions.
+ *
+ * Off is a defensible choice, which is why it is a setting. What it produces
+ * lands in the head of every request forever, and somebody who would rather
+ * write those rules themselves should be able to say so.
+ */
+export interface HabitsSettings {
+	enabled: boolean;
+	/**
+	 * Separate sessions a mistake must appear in before it is raised.
+	 *
+	 * Three, because two is a coincidence and one is a bad evening. A mistake
+	 * made in three different sessions is a property of this model on this
+	 * machine, which is the only thing worth spending permanent context on.
+	 */
+	afterSessions: number;
+}
+
 export interface ConsolidationSettings {
 	enabled: boolean;
 	quietMs: number;
@@ -90,6 +109,7 @@ export interface ConsolidationSettings {
 	maxTranscriptChars: number;
 	promoteToCommon: boolean;
 	review: ReviewSettings;
+	habits: HabitsSettings;
 	/**
 	 * Reclaim the bytes of forgotten facts at the end of a pass.
 	 *
@@ -200,6 +220,10 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 			review: {
 				enabled: true,
 				sampleSize: 12,
+			},
+			habits: {
+				enabled: true,
+				afterSessions: 3,
 			},
 			maintain: true,
 		},

@@ -31,6 +31,7 @@ import { toStoredPath } from "./paths/path-codec.ts";
 import { detectProjectRoot } from "./project/detect.ts";
 import { ProjectRouter } from "./router/router.ts";
 import { MemoryController } from "./session/controller.ts";
+import { StumbleLog } from "./session/stumbles.ts";
 import { clockLine } from "./session/tail.ts";
 import type { Settings } from "./settings/defaults.ts";
 import { CheckpointingStore } from "./storage/checkpointing-store.ts";
@@ -98,6 +99,8 @@ export interface StartedSession {
 	 */
 	headInstructions: string;
 	cursors: CursorStore;
+	/** Mistakes counted across sessions; read by `/longterm-status`. */
+	stumbles: StumbleLog;
 	projectId?: string;
 	projectRoot?: string;
 	/** Absent outside a project: there is no per-project transcript to curate. */
@@ -259,6 +262,16 @@ export async function startSession(
 		flavour: pathModule,
 	});
 
+	// Counted across sessions, so it needs an id that is unique per process and
+	// never reused: the whole signal is "a different session made the same
+	// mistake", and two sessions sharing an id would read as one.
+	const stumbles = new StumbleLog({
+		fs,
+		file: layout.stumbleStateFile,
+		flavour: pathModule,
+		sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+	});
+
 	const controller = new MemoryController({
 		settings,
 		common,
@@ -282,6 +295,13 @@ export async function startSession(
 		// the one place that already touches the process, so nothing below can
 		// reach an environment at all.
 		hasEnv: (name: string) => (process.env[name] ?? "") !== "",
+		// Resolved here, where they were computed, so the model never describes
+		// a path it worked out from a convention.
+		paths: {
+			settingsFile: layout.settingsFile,
+			memoryDir: layout.memoryDir,
+		},
+		stumbles,
 		// Another project's memory, read-only. A shared lock coexists with the
 		// writer a session in that project is holding, so the question is safe
 		// to ask while somebody is working there.
@@ -361,6 +381,8 @@ export async function startSession(
 				// that is exactly what pi files the transcript under.
 				cursorKey: projectId ?? cwd,
 				label,
+				stumbles,
+				alwaysLimits: settings.memory.instructions,
 				reviewCursor,
 				scopeLabel: (scope) =>
 					scope === "user"
@@ -385,6 +407,7 @@ export async function startSession(
 		instructions,
 		headInstructions,
 		cursors,
+		stumbles,
 		...(consolidation === undefined ? {} : { consolidation }),
 		consolidationQuietMs:
 			consolidation === undefined ? 0 : settings.memory.consolidation.quietMs,
