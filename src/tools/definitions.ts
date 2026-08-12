@@ -129,6 +129,7 @@ export type ToolController = Pick<
 	| "unlink"
 	| "notes"
 	| "readAbout"
+	| "record"
 >;
 
 export function longtermTools(controller: ToolController): ToolSpec[] {
@@ -416,6 +417,13 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
 				const created = await notes.create(str(args.title), str(args.content));
+				controller.record({
+					kind: "note",
+					action: "created",
+					noteId: created.noteId,
+					title: created.title,
+					chars: str(args.content).length,
+				});
 				return `Created note ${created.noteId} ("${created.title}").`;
 			},
 		},
@@ -435,9 +443,18 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
 				const note = await notes.read(str(args.note_id));
-				return note === undefined
-					? `There is no note ${str(args.note_id)}.`
-					: `# ${note.title}\n\n${note.content}`;
+				if (note === undefined) return `There is no note ${str(args.note_id)}.`;
+				// The body goes to the model and not to the terminal: a note is
+				// what does not fit in a fact, so printing it would bury whatever
+				// the person was actually watching.
+				controller.record({
+					kind: "note",
+					action: "read",
+					noteId: note.noteId,
+					title: note.title,
+					chars: note.content.length,
+				});
+				return `# ${note.title}\n\n${note.content}`;
 			},
 		},
 		{
@@ -465,6 +482,13 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 						str(args.content),
 						optStr(args.title),
 					);
+					controller.record({
+						kind: "note",
+						action: "updated",
+						noteId: updated.noteId,
+						title: updated.title,
+						chars: str(args.content).length,
+					});
 					return `Updated note ${updated.noteId}.`;
 				} catch (error) {
 					// An id that is not there is an ordinary answer, not a fault:
@@ -495,9 +519,13 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
 				const removed = await notes.remove(str(args.note_id));
-				return removed
-					? `Deleted note ${str(args.note_id)}.`
-					: `There is no note ${str(args.note_id)}.`;
+				if (!removed) return `There is no note ${str(args.note_id)}.`;
+				controller.record({
+					kind: "note",
+					action: "deleted",
+					noteId: str(args.note_id),
+				});
+				return `Deleted note ${str(args.note_id)}.`;
 			},
 		},
 		{

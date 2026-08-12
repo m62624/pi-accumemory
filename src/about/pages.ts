@@ -469,9 +469,10 @@ say a restart is needed. Never say "done" or "I have turned that off".
 
 **\`memory\`**
 - \`enabled\` - the whole extension.
-- \`writeOutput\` - how much of a write is echoed to the USER's terminal:
-  \`short\`, \`full\` or \`hidden\`. It never changes what you are told; you always
-  get the full account.
+- \`output\` - how much of what a memory tool did is echoed to the USER's
+  terminal: \`short\`, \`full\` or \`hidden\`. It never changes what you are told;
+  you always get the full account. (Named \`writeOutput\` in older settings
+  files, which still work.)
 - \`recallTokenBudget\`, \`recallK\` - how large the block may be, and how many
   facts it may draw.
 - \`graphDepth\` - how far a search follows entity links.

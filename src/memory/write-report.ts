@@ -38,6 +38,14 @@ export interface Neighbour {
 
 export interface WriteReport {
 	id: number;
+	/**
+	 * What was stored, verbatim.
+	 *
+	 * Carried for the terminal, which has no other source for it: the person
+	 * watching did not write this sentence, the model did, and "Stored [f7]"
+	 * tells them a number and nothing about what their memory now believes.
+	 */
+	text: string;
 	/** The memory it landed in, as the model must pass it back. */
 	scope: "project" | "user";
 	/** What a person calls that memory. */
@@ -82,22 +90,10 @@ export function modelReport(report: WriteReport): string {
 	return lines.join("\n");
 }
 
-/** One line, for the terminal. */
-export function shortReport(report: WriteReport): string {
-	return `Stored [f${report.id}] in ${report.scopeLabel}.`;
-}
-
 /**
- * Whether a tool result's detail really is a write.
+ * The one-line form lives in `tool-report.ts`, with every other tool's.
  *
- * The renderer receives `details` as `unknown` from the SDK and used to decide
- * on "not undefined", which is a claim about a value nobody checked. When a
- * call failed, the detail that came back was not a report and the terminal
- * printed `Stored [fundefined] in undefined.` - a crash rendered as a
- * successful write, which is the worst reading of the two available.
+ * It moved because a write is no longer the only thing the terminal has an
+ * opinion about, and one file deciding what a person sees is the only way the
+ * fourteen answers stay in one voice.
  */
-export function isWriteReport(value: unknown): value is WriteReport {
-	if (typeof value !== "object" || value === null) return false;
-	const report = value as Partial<WriteReport>;
-	return typeof report.id === "number" && typeof report.scopeLabel === "string";
-}

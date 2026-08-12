@@ -19,12 +19,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { extensionLayout } from "./layout.ts";
+import { isToolReport, personLine } from "./memory/tool-report.ts";
 import type { Turn } from "./memory/transcript-view.ts";
-import {
-	isWriteReport,
-	modelReport,
-	shortReport,
-} from "./memory/write-report.ts";
 import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
 import { nodeFileOps } from "./node-fs.ts";
 import { withHead } from "./session/head.ts";
@@ -99,7 +95,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 				// last report would otherwise sit there until the user's next tool
 				// call - any tool, including one that reads - picked it up and
 				// printed "Stored [fN]" over an answer that stored nothing.
-				session?.controller.takeLastWrite();
+				session?.controller.takeLastReport();
 				const text =
 					session === undefined
 						? (startupError ?? MEMORY_UNAVAILABLE)
@@ -108,20 +104,20 @@ export default function accumemory(pi: ExtensionAPI): void {
 				// full account - see `memory/write-report.ts` for why every part
 				// of it is load-bearing. What the person sees is `renderResult`
 				// below, and only that is configurable.
-				const write = session?.controller.takeLastWrite();
+				const report = session?.controller.takeLastReport();
 				return {
 					content: [{ type: "text", text }],
-					details: write,
+					details: report,
 				};
 			},
 			renderResult: (result, _options, _theme) => {
 				const detail = result.details;
-				const mode = session?.settings.memory.writeOutput ?? "short";
-				if (!isWriteReport(detail)) return new Text(resultText(result));
-				if (mode === "hidden") return new Text("");
-				return new Text(
-					mode === "full" ? modelReport(detail) : shortReport(detail),
-				);
+				const mode = session?.settings.memory.output ?? "short";
+				// No report means nothing happened worth summarising - a refusal,
+				// a miss, an error - and those are worded for the model in terms a
+				// person can read too.
+				if (!isToolReport(detail)) return new Text(resultText(result));
+				return new Text(personLine(detail, mode) ?? resultText(result));
 			},
 		});
 	}

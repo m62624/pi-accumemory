@@ -22,6 +22,7 @@ import { progressQuery, recallQuery } from "../memory/query.ts";
 import { RefreshPolicy } from "../memory/refresh.ts";
 import { RepeatGuard } from "../memory/repeat-guard.ts";
 import { suggestionText, suggestTag } from "../memory/tag-suggest.ts";
+import { type FactLine, snip, type ToolReport } from "../memory/tool-report.ts";
 import type { Turn } from "../memory/transcript-view.ts";
 import {
 	modelReport,
@@ -129,8 +130,8 @@ export class MemoryController {
 	private block = "";
 	private manifestPending: boolean;
 	private manifestShown = false;
-	/** Detail of the last successful write, for the terminal renderer. */
-	private lastWrite: WriteReport | undefined;
+	/** What the last tool call did, for the terminal renderer. */
+	private lastReport: ToolReport | undefined;
 	/**
 	 * `scope:id` of every fact this session has dropped.
 	 *
@@ -171,7 +172,13 @@ export class MemoryController {
 	 * stand in for a method in a way it cannot for a live object.
 	 */
 	readAbout(topic: unknown): string {
-		return readAboutPage(this.about, topic);
+		const page = readAboutPage(this.about, topic);
+		this.record({
+			kind: "about",
+			topic: typeof topic === "string" ? topic : String(topic),
+			chars: page.length,
+		});
+		return page;
 	}
 
 	/**
@@ -375,8 +382,9 @@ export class MemoryController {
 		if (repeat !== undefined) await this.stumbled("asked_the_same_question");
 
 		const sections: string[] = [];
+		let found = 0;
 		for (const [factScope, label, memory] of this.readableScopes(scope)) {
-			const found = await memory.recall({
+			const recalled = await memory.recall({
 				query: input.question,
 				tokenBudget: this.deps.settings.memory.recallTokenBudget,
 				...defined({
@@ -389,13 +397,20 @@ export class MemoryController {
 			// into one ranking. plugmem's own measurements put routing ahead of
 			// merging by a wide margin, and a merged list hides which memory an
 			// answer came from - which is exactly what the reader needs to know.
+			found += recalled.facts.length;
 			sections.push(
-				found.rendered.trim() === ""
+				recalled.rendered.trim() === ""
 					? `${label}: nothing on this.`
-					: `${label} - these ids are scope: "${factScope}":\n${found.rendered.trim()}`,
+					: `${label} - these ids are scope: "${factScope}":\n${recalled.rendered.trim()}`,
 			);
 		}
 		if (sections.length === 0) return this.noProjectMessage();
+		this.record({
+			kind: "ask",
+			label: this.label(scope),
+			question: input.question,
+			found,
+		});
 
 		const parts = [sections.join("\n\n")];
 		if (repeat !== undefined) parts.push(repeat);
@@ -422,7 +437,10 @@ export class MemoryController {
 			return "Cross-project memory is not available in this session.";
 
 		const answer = await this.readProject(open, project.projectId, question);
-		if (answer !== undefined) return this.render(project.name, answer);
+		if (answer !== undefined) {
+			this.recordCrossProject(project.name, question, answer);
+			return this.render(project.name, answer);
+		}
 
 		// The vectors in that project are from a different embedder, and a
 		// read-only handle cannot rebuild them. Repair it with a brief writer,
@@ -433,9 +451,33 @@ export class MemoryController {
 		if (failure !== undefined) return `Project "${project.name}": ${failure}`;
 
 		const retried = await this.readProject(open, project.projectId, question);
-		return retried === undefined
-			? MISMATCHED_PROJECT(project.name)
-			: this.render(project.name, retried);
+		if (retried === undefined) return MISMATCHED_PROJECT(project.name);
+		this.recordCrossProject(project.name, question, retried);
+		return this.render(project.name, retried);
+	}
+
+	/**
+	 * Another project's answer, counted by lines rather than by facts.
+	 *
+	 * A cross-project read goes through a reader that hands back the rendered
+	 * block and no fact list, so the count is of what is there to see. Close
+	 * enough for a terminal line, and not a number anything depends on.
+	 */
+	private recordCrossProject(
+		name: string,
+		question: string,
+		rendered: string,
+	): void {
+		this.record({
+			kind: "ask",
+			label: `the memory of "${name}"`,
+			question,
+			found:
+				rendered === ""
+					? 0
+					: rendered.split("\n").filter((line) => line.trim().startsWith("- "))
+							.length,
+		});
 	}
 
 	/** The rendered recall, or `undefined` when the vector space disagrees. */
@@ -467,6 +509,7 @@ export class MemoryController {
 
 	async projects(): Promise<string> {
 		const known = await this.deps.router.list();
+		this.record({ kind: "projects", count: known.length });
 		if (known.length === 0) return "No projects are registered yet.";
 		return known
 			.map((project) => `- ${project.name} (${project.path})`)
@@ -531,9 +574,10 @@ export class MemoryController {
 			].join("\n");
 		}
 		// The model gets the whole account; what the terminal prints is decided
-		// in `index.ts` from `memory.writeOutput`. See `memory/write-report.ts`.
-		this.lastWrite = {
+		// in `index.ts` from `memory.output`. See `memory/write-report.ts`.
+		const write: WriteReport = {
 			id: stored.id ?? -1,
+			text: input.text,
 			scope,
 			scopeLabel: this.label(scope),
 			entity,
@@ -554,7 +598,8 @@ export class MemoryController {
 							"again, and tell the user this extension has a defect worth reporting.",
 					],
 		};
-		return modelReport(this.lastWrite);
+		this.record({ kind: "write", write });
+		return modelReport(write);
 	}
 
 	/**
@@ -636,15 +681,22 @@ export class MemoryController {
 	}
 
 	/**
-	 * The last write, in full, for whoever renders the terminal.
+	 * Notes what a call did, for whoever renders the terminal.
 	 *
 	 * Kept here rather than returned alongside the string because the tool
 	 * contract is "a tool answers with text" - and the text is the model's, not
-	 * the screen's.
+	 * the screen's. Public because the note tools reach their store directly
+	 * rather than through a method here, and a report they cannot file is a
+	 * terminal line that falls back to the model's wording.
 	 */
-	takeLastWrite(): WriteReport | undefined {
-		const report = this.lastWrite;
-		this.lastWrite = undefined;
+	record(report: ToolReport): void {
+		this.lastReport = report;
+	}
+
+	/** The last report, once. */
+	takeLastReport(): ToolReport | undefined {
+		const report = this.lastReport;
+		this.lastReport = undefined;
 		return report;
 	}
 
@@ -670,6 +722,14 @@ export class MemoryController {
 		}
 		const stored = await memory.revise(id, { text, ...defined({ tags }) });
 		this.noteWrote();
+		this.record({
+			kind: "revise",
+			scopeLabel: this.label(scope),
+			oldId: id,
+			newId: stored.id ?? id,
+			before: current.text,
+			after: text,
+		});
 		return `Revised [f${id}] into [f${stored.id}] in ${this.label(scope)}. The old version is kept as history.`;
 	}
 
@@ -694,24 +754,41 @@ export class MemoryController {
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 
-		const dropped: number[] = [];
+		const dropped: FactLine[] = [];
 		const absent: number[] = [];
 		for (const id of ids) {
-			if (await memory.forget(id)) dropped.push(id);
+			// Read BEFORE closing it, because afterwards there is nothing to
+			// read: a forgotten fact leaves recall at once. This is the only
+			// moment at which anyone - the person watching or the model that
+			// asked - can still be told what it was that went away.
+			const card = await memory.get(id);
+			if (await memory.forget(id)) dropped.push({ id, text: card?.text ?? "" });
 			else absent.push(id);
 		}
 		if (dropped.length > 0) {
 			this.noteWrote();
-			for (const id of dropped) {
+			for (const { id } of dropped) {
 				this.forgotten.add(`${scope}:${id}`);
 				this.repeatGuard.noteSuccess(`forget:${scope}:${id}`);
 			}
 		}
+		this.record({
+			kind: "forget",
+			scopeLabel: this.label(scope),
+			forgot: dropped,
+			absent,
+		});
 
 		const said: string[] = [];
 		if (dropped.length > 0) {
+			// The model is told WHAT it dropped, not only which numbers. It had
+			// the text in the memory block when it chose the ids, but that block
+			// is rebuilt every turn and never persists, so by its next reply the
+			// only lasting record of this deletion is the sentence below. A
+			// deletion it cannot describe is one it cannot notice was wrong.
 			said.push(
-				`Forgot ${dropped.map((id) => `[f${id}]`).join(", ")} from ${this.label(scope)}.`,
+				`Forgot ${dropped.length} fact${dropped.length === 1 ? "" : "s"} from ${this.label(scope)}:`,
+				...dropped.map(({ id, text }) => `  [f${id}] ${snip(text)}`),
 			);
 		}
 		for (const id of absent) {
@@ -777,6 +854,12 @@ export class MemoryController {
 		const memory = this.readableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 		const page = await memory.listTags(defined({ prefix, cursor }));
+		this.record({
+			kind: "tags",
+			scopeLabel: this.label(scope),
+			count: page.items.length,
+			more: page.nextCursor !== undefined,
+		});
 		if (page.items.length === 0) return "No tags yet.";
 		const listed = page.items
 			.map((tag) => `${tag.name}(${tag.count})`)
@@ -795,6 +878,14 @@ export class MemoryController {
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 		await memory.link({ src, rel, dst });
+		this.record({
+			kind: "link",
+			undone: false,
+			scopeLabel: this.label(scope),
+			src,
+			rel,
+			dst,
+		});
 		return `Linked ${src} -${rel}-> ${dst}.`;
 	}
 
@@ -807,9 +898,16 @@ export class MemoryController {
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
 		const removed = await memory.unlink({ src, rel, dst });
-		return removed
-			? `Unlinked ${src} -${rel}-> ${dst}.`
-			: "There was no such link.";
+		if (!removed) return "There was no such link.";
+		this.record({
+			kind: "link",
+			undone: true,
+			scopeLabel: this.label(scope),
+			src,
+			rel,
+			dst,
+		});
+		return `Unlinked ${src} -${rel}-> ${dst}.`;
 	}
 
 	// -- notes ----------------------------------------------------------------
@@ -876,6 +974,8 @@ export class MemoryController {
 	// -- scope plumbing -------------------------------------------------------
 
 	private label(scope: Scope): string {
+		// Only a read can be about both; every write rejects it before here.
+		if (scope === "both") return "both memories";
 		if (scope === "user") return "your memory about the user";
 		return this.deps.projectName === undefined
 			? "this project"

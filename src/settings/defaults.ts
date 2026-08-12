@@ -141,8 +141,14 @@ export interface Settings {
 	timezone: string | null;
 	memory: {
 		enabled: boolean;
-		/** What the terminal shows on a memory write; the model always sees all. */
-		writeOutput: WriteOutput;
+		/**
+		 * What the TERMINAL shows for a memory call; the model always sees all.
+		 *
+		 * Named `output` rather than `writeOutput` since it stopped being about
+		 * writes: every tool now reports what it did, and every one of them has
+		 * a one-line form for the person watching.
+		 */
+		output: WriteOutput;
 		recallTokenBudget: number;
 		/** 0 leaves the engine's own default in charge. */
 		recallK: number;
@@ -177,7 +183,7 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 	timezone: null,
 	memory: {
 		enabled: true,
-		writeOutput: "short",
+		output: "short",
 		recallTokenBudget: 512,
 		recallK: 0,
 		graphDepth: null,

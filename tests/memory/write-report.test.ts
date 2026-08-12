@@ -8,14 +8,15 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { personLine } from "../../src/memory/tool-report.ts";
 import {
 	modelReport,
-	shortReport,
 	type WriteReport,
 } from "../../src/memory/write-report.ts";
 
 const report: WriteReport = {
 	id: 7,
+	text: "the user prefers Rust for systems work",
 	scope: "user",
 	scopeLabel: "your memory about the user",
 	entity: "user",
@@ -67,18 +68,24 @@ describe("modelReport", () => {
 	});
 });
 
-describe("shortReport", () => {
+describe("the one-line form", () => {
+	const short = personLine({ kind: "write", write: report }, "short") ?? "";
+
 	it("is one line", () => {
-		expect(shortReport(report).split("\n")).toHaveLength(1);
+		expect(short.split("\n")).toHaveLength(1);
 	});
 
 	it("still says which memory it went to", () => {
 		// The one thing a person watching actually needs: that it was stored,
 		// and that it did not land in the shared memory by accident.
-		expect(shortReport(report)).toContain("your memory about the user");
+		expect(short).toContain("your memory about the user");
+	});
+
+	it("says WHAT was stored, which is the part a person can judge", () => {
+		expect(short).toContain("prefers Rust for systems work");
 	});
 
 	it("is strictly shorter than what the model is told", () => {
-		expect(shortReport(report).length).toBeLessThan(modelReport(report).length);
+		expect(short.length).toBeLessThan(modelReport(report).length);
 	});
 });

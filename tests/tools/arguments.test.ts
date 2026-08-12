@@ -206,7 +206,9 @@ describe("the ids a forget can arrive with", () => {
 			ids: ["f0", null, 0],
 			scope: "project",
 		});
-		expect(answer).toBe("Forgot [f0] from this project (app).");
+		expect(answer).toBe(
+			"Forgot 1 fact from this project (app):\n  [f0] a durable fact",
+		);
 	});
 
 	it("says what it needs when the list is empty", async () => {

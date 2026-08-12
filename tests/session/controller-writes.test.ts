@@ -282,23 +282,26 @@ describe("what a write tells the model", () => {
 	it("hands the same detail to the terminal, once", async () => {
 		const { controller } = build();
 		await controller.remember({ text: "a durable fact", tags: ["decision"] });
-		const first = controller.takeLastWrite();
-		expect(first?.scope).toBe("project");
-		expect(first?.tags).toEqual(["decision"]);
+		const first = controller.takeLastReport();
+		expect(first?.kind).toBe("write");
+		if (first?.kind !== "write") throw new Error("expected a write report");
+		expect(first.write.scope).toBe("project");
+		expect(first.write.tags).toEqual(["decision"]);
+		expect(first.write.text).toBe("a durable fact");
 		// Taken, not peeked: a second tool call must not re-render the first
 		// call's write.
-		expect(controller.takeLastWrite()).toBeUndefined();
+		expect(controller.takeLastReport()).toBeUndefined();
 	});
 
 	it("leaves nothing behind when the write was refused", async () => {
 		const { controller } = build();
 		await controller.remember({ text: "the linter here is biome" });
-		controller.takeLastWrite();
+		controller.takeLastReport();
 		const refused = await controller.remember({
 			text: "the linter here is biome",
 		});
 		expect(refused).toMatch(/not stored/i);
-		expect(controller.takeLastWrite()).toBeUndefined();
+		expect(controller.takeLastReport()).toBeUndefined();
 	});
 });
 
@@ -338,7 +341,14 @@ describe("clearing several facts at once", () => {
 			ids.push(Number(/\[f(\d+)\]/.exec(stored)?.[1]));
 		}
 		const answer = await controller.forget(ids, "project");
-		expect(answer).toMatch(/Forgot \[f0\], \[f1\], \[f2\]/);
+		expect(answer).toMatch(/Forgot 3 facts/);
+		// Each id with the text it stood for. The model chose these ids from a
+		// memory block that is rebuilt every turn and never persists, so this
+		// answer is the only lasting record of what it deleted - and the only
+		// thing that lets it notice it deleted the wrong one.
+		expect(answer).toContain("[f0] fact one");
+		expect(answer).toContain("[f1] fact two");
+		expect(answer).toContain("[f2] fact three");
 		expect(project?.live()).toHaveLength(0);
 	});
 
@@ -347,7 +357,8 @@ describe("clearing several facts at once", () => {
 		const stored = await controller.remember({ text: "a durable fact" });
 		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
 		const answer = await controller.forget([id, 99], "project");
-		expect(answer).toMatch(/Forgot \[f0\]/);
+		expect(answer).toMatch(/Forgot 1 fact/);
+		expect(answer).toContain("[f0] a durable fact");
 		expect(answer).toMatch(/no live fact \[f99\]/i);
 		expect(project?.live()).toHaveLength(0);
 	});

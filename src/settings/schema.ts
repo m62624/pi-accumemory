@@ -32,7 +32,7 @@ const SCHEMA: Record<string, FieldSpec> = {
 		kind: "section",
 		fields: {
 			enabled: BOOL,
-			writeOutput: { kind: "choice", of: ["short", "full", "hidden"] },
+			output: { kind: "choice", of: ["short", "full", "hidden"] },
 			recallTokenBudget: COUNT,
 			recallK: COUNT,
 			graphDepth: { kind: "count", nullable: true },
@@ -130,6 +130,11 @@ export function parseSettings(raw: unknown): ParsedSettings {
 	return { settings: settings as unknown as Settings, warnings };
 }
 
+/** Old dotted names, and what they are called now. */
+const RENAMED: Record<string, string> = {
+	"memory.writeOutput": "memory.output",
+};
+
 function overlay(
 	target: Record<string, unknown>,
 	source: Record<string, unknown>,
@@ -139,6 +144,21 @@ function overlay(
 ): void {
 	for (const [key, value] of Object.entries(source)) {
 		const dotted = prefix === "" ? key : `${prefix}.${key}`;
+		const renamed = RENAMED[dotted];
+		if (renamed !== undefined) {
+			// Honoured rather than ignored. A rename that silently drops the
+			// value returns the setting to its default without saying so, and
+			// the person finds out by noticing their terminal looks wrong.
+			warnings.push(
+				`settings: "${dotted}" is now "${renamed}"; the old name still works`,
+			);
+			target[renamed.split(".").pop() ?? renamed] = checkScalar(
+				dotted,
+				value,
+				schema[renamed.split(".").pop() ?? renamed] as FieldSpec,
+			);
+			continue;
+		}
 		const spec = schema[key];
 		if (spec === undefined) {
 			warnings.push(`settings: unknown key "${dotted}" was ignored`);

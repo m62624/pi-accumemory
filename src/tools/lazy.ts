@@ -44,6 +44,9 @@ export function lazyController(
 		unlink: async (...args) =>
 			get()?.controller.unlink(...args) ?? MEMORY_UNAVAILABLE,
 		notes: (...args) => get()?.controller.notes(...args),
+		// Dropped when there is no memory yet, which is right: nothing happened,
+		// so there is nothing for the terminal to say about it.
+		record: (report) => get()?.controller.record(report),
 		readAbout: (topic) =>
 			get()?.controller.readAbout(topic) ?? MEMORY_UNAVAILABLE,
 	};

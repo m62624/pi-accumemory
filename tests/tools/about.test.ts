@@ -138,8 +138,8 @@ describe("reading one", () => {
 
 describe("current_settings", () => {
 	it("reports the values this session runs with", () => {
-		const page = readAbout(desk({ writeOutput: "full" }), "current_settings");
-		expect(page).toContain("writeOutput: full");
+		const page = readAbout(desk({ output: "full" }), "current_settings");
+		expect(page).toContain("output: full");
 		expect(page).toContain("consolidation.review.sampleSize: 12");
 	});
 

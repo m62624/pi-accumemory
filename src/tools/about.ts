@@ -142,7 +142,7 @@ export class AboutDesk {
 			"",
 			"## Memory",
 			`- enabled: ${memory.enabled}`,
-			`- writeOutput: ${memory.writeOutput} (what the USER's terminal shows; you always get everything)`,
+			`- output: ${memory.output} (what the USER's terminal shows; you always get everything)`,
 			`- recallTokenBudget: ${memory.recallTokenBudget}`,
 			`- recallK: ${memory.recallK}`,
 			`- queryMaxChars: ${memory.queryMaxChars}`,

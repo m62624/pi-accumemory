@@ -22,7 +22,7 @@ day it does not.
 	"timezone": null,
 	"memory": {
 		"enabled": true,
-		"writeOutput": "short",
+		"output": "short",
 		"recallTokenBudget": 512,
 		"recallK": 0,
 		"graphDepth": null,
@@ -113,9 +113,9 @@ definition of a topic change.
 | `memory.graphDepth` | `null` | how far to follow entity links; `null` uses the engine's default |
 | `memory.manifest` | `true` | the one-line inventory shown once at session start, so the model knows there is something to ask about |
 | `memory.queryMaxChars` | `600` | ceiling on the recall query. Lexical retrieval degrades as terms pile up, and a pasted wall of text drowns the words that identify the question |
-| `memory.writeOutput` | `"short"` | how much of a memory write is printed **in your terminal**. See below |
+| `memory.output` | `"short"` | how much of what a memory tool did is printed **in your terminal**. See below |
 
-## What you see when a fact is stored — `memory.writeOutput`
+## What you see when the memory is used — `memory.output`
 
 This setting changes **only what you see**. The model is always told everything:
 which memory the fact landed in, under which entity, with which tags, and which
@@ -126,11 +126,30 @@ guard compares against, and the tag vocabulary because filtering matches tags
 exactly, so a second spelling splits the pile and neither half ever answers the
 other's question.
 
+It covers every memory tool, not only writes. An id is how the model addresses a
+fact, so `Forgot [f2], [f5], [f6], [f7]` is exactly right for the model and says
+nothing to you. In `short` every tool answers you in its own words instead:
+
+```
+Stored [f7] in your memory about the user: "prefers Rust for systems work"
+Forgot 4 facts from your memory about the user.
+  [f2] [f5] [f6] [f7]  "pi-accumemory is a long-term memory extension for pi"
+Asked this project (app): "why is the cache off" - 3 facts.
+Read the "scopes" page of longterm_about (2.6 kB).
+```
+
+The text always comes from the database, never from the model — at the moment of
+a deletion the model no longer has the fact in front of it, so anything it wrote
+there would be a guess.
+
 | value | what the terminal shows |
 |---|---|
-| `"short"` (default) | one line: `Stored [f7] in this project (app).` |
+| `"short"` (default) | one line per call, as above |
 | `"full"` | everything the model was told. Useful while you are tuning tags or watching what lands where |
 | `"hidden"` | nothing at all |
+
+The old name `memory.writeOutput` still works and is read as `memory.output`,
+with a warning at startup.
 
 
 ## Writing — `memory.nudge.*`
