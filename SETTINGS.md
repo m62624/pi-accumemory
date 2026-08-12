@@ -281,7 +281,7 @@ you instead.
 
 ## Reclaiming disk — `consolidation.maintain`
 
-`longterm_forget` sets a tombstone: the fact leaves recall at once, and its
+`longterm_forget` (and `longterm_forget_many`) sets a tombstone: the fact leaves recall at once, and its
 bytes leave at the next maintenance pass. Nothing schedules one — plugmem's own
 trigger is off by default — so without this a memory only ever grows. Measured
 on the engine at `dim: 768`:

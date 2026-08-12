@@ -25,6 +25,7 @@ const WRITE_TOOLS = new Set([
 	"longterm_remember",
 	"longterm_revise",
 	"longterm_forget",
+	"longterm_forget_many",
 ]);
 
 /** Consecutive inspections with no write before the pass is told to decide. */
@@ -127,8 +128,8 @@ export class ConsolidationLedger {
 				"Finish with longterm_done whenever this pass has nothing more worth doing. " +
 				"Until then: store what the transcript shows and the memory lacks " +
 				"(longterm_remember), collapse repeated dated facts into one undated " +
-				"pattern (longterm_revise, then longterm_forget the old ones), and drop " +
-				"what has expired (longterm_forget). One statement per fact.",
+				"pattern (longterm_revise, then longterm_forget_many the old ones), and " +
+				"drop what has expired (longterm_forget). One statement per fact.",
 		};
 	}
 

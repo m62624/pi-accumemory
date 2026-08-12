@@ -68,7 +68,8 @@ export const REPEATS_PER_SESSION = 2;
 /** What the human is told about a kind, and what the pass shows the model. */
 export const STUMBLE_DESCRIPTIONS: Record<StumbleKind, string> = {
 	id_without_scope:
-		"called longterm_revise or longterm_forget with a fact id but no scope " +
+		"called longterm_revise, longterm_forget or longterm_forget_many with a " +
+		"fact id but no scope " +
 		'(or scope: "both"), which cannot name a fact because the two memories ' +
 		"number theirs independently",
 	id_in_the_other_memory:

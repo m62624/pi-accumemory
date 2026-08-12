@@ -149,7 +149,8 @@ export function consolidationBlock(rendered: string): string {
 		body,
 		"",
 		"The number in each [fN] tag is that fact's id: pass it to longterm_revise to " +
-			"replace it, or longterm_forget to drop it. Each line is FORMATTED for you - " +
+			"replace it, longterm_forget to drop it, or longterm_forget_many to drop " +
+			"several in one call. Each line is FORMATTED for you - " +
 			"the fact itself is the sentence, while the dates say when it has held and " +
 			"#tags say how it is filed; never copy those into a fact you write.",
 	].join("\n");

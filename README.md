@@ -65,6 +65,7 @@ a fact ends up where nobody looks for it.
 | `longterm_remember` | store one durable statement |
 | `longterm_revise` | replace a fact that changed; the old version stays as history |
 | `longterm_forget` | drop one that was wrong, or one whose moment has passed |
+| `longterm_forget_many` | drop a list of them in one write - duplicates, mostly |
 | `longterm_tags` | the tags in use, with counts |
 | `longterm_link` / `longterm_unlink` | typed relationships between entities |
 | `longterm_note_*` | create, read, update and delete notes too long to be facts |

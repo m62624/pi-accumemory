@@ -142,7 +142,8 @@ One row, one call. This table is not a menu of good ideas; it is the mapping.
 | solved something like this in another project | \`longterm_projects\`, then \`longterm_ask_project\` |
 | learned a durable fact | \`longterm_remember\` |
 | a stored fact CHANGED | \`longterm_revise\` + \`scope\` |
-| a stored fact was WRONG or expired | \`longterm_forget\` + \`scope\` (a list is fine) |
+| a stored fact was WRONG or expired | \`longterm_forget\` + \`scope\` |
+| SEVERAL stored facts must go at once | \`longterm_forget_many\` + \`scope\` |
 | want the full tag vocabulary | \`longterm_tags\` |
 | does not fit in one sentence | \`longterm_note_create\` |
 | do not understand how this memory works | \`longterm_about\` |
@@ -202,8 +203,9 @@ both.
 
 - \`longterm_ask\` and \`longterm_remember\` - **optional**. Left out, it is
   \`project\`.
-- \`longterm_revise\` and \`longterm_forget\` - **required**, no default. They
-  take a fact id, and an id without a scope names two different facts.
+- \`longterm_revise\`, \`longterm_forget\` and \`longterm_forget_many\` -
+  **required**, no default. They take fact ids, and an id without a scope names
+  two different facts.
 
 That second rule has cost real sessions: ten consecutive "fact 3 not found"
 replies while the fact sat in the other memory, unreachable because the scope
@@ -276,8 +278,10 @@ Not: "the project uses Rust, tests run with cargo test, and CI is on GitHub
 Actions". That is three facts in one, and none of them can be revised or
 forgotten without destroying the other two.
 
-\`longterm_forget\` is the opposite: **one call, as many ids as you like** -
-\`ids: [3, 4, 5]\`. Deleting five facts is one call, not five.
+Deleting works the other way round, and it is two tools rather than one
+argument that changes shape: \`longterm_forget\` takes \`id: 3\`, and
+\`longterm_forget_many\` takes \`ids: [3, 4, 5]\`. Deleting five facts is one call
+of the second, not five of the first.
 
 ## When a write comes back refused
 

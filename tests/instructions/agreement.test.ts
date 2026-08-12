@@ -114,13 +114,17 @@ describe("the instructions and the code agree", () => {
 	});
 
 	it("does not promise a default where the schema requires the argument", () => {
-		for (const name of ["longterm_revise", "longterm_forget"]) {
+		for (const name of [
+			"longterm_revise",
+			"longterm_forget",
+			"longterm_forget_many",
+		]) {
 			const tool = tools().find((candidate) => candidate.name === name);
 			expect(tool?.parameters.required, name).toContain("scope");
 		}
 		// And the instructions say so, in the words a reader would search for.
 		expect(BUNDLED_INSTRUCTIONS.memory).toMatch(
-			/longterm_revise` and `longterm_forget` \*\*require\*\* `scope`/,
+			/`longterm_forget_many` \*\*require\*\*\n`scope`/,
 		);
 		expect(BUNDLED_INSTRUCTIONS.placement).toMatch(/REQUIRED on/);
 	});

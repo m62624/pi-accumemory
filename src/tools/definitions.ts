@@ -42,6 +42,7 @@ export const LONGTERM_TOOL_NAMES = [
 	"longterm_remember",
 	"longterm_revise",
 	"longterm_forget",
+	"longterm_forget_many",
 	"longterm_tags",
 	"longterm_link",
 	"longterm_unlink",
@@ -68,7 +69,8 @@ const SCOPE_PARAM = {
 		"from the two of them and cannot be written to. When unsure choose project: a " +
 		"wrong fact there stays local, while a wrong fact in the user memory is read at " +
 		"the start of every session of every project. NOTE that longterm_revise and " +
-		"longterm_forget REQUIRE this argument and have no default - see their own " +
+		"longterm_forget/longterm_forget_many REQUIRE this argument and have no " +
+		"default - see their own " +
 		"description.",
 } as const;
 
@@ -144,7 +146,8 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				"you do not know, and before making a choice that may already be a convention " +
 				"here. An empty answer is a real answer: it means nothing is stored on the " +
 				"subject, so proceed - do not rephrase and retry. Each [fN] is a fact id you " +
-				"can pass to longterm_revise or longterm_forget.",
+				"can pass to longterm_revise, longterm_forget, or longterm_forget_many for " +
+				"several at once.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -297,23 +300,45 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				`${WHOSE} Drop a fact that was wrong, or a dated one whose date has passed ` +
 				"with nothing suggesting it recurs. Keep the durable pattern behind a passed " +
 				'event: "plays that game on weekday evenings" outlives "plays at 20:30 on ' +
-				'Saturday". Takes one id or several: pass `ids` when you are clearing a ' +
-				"list, which is one call instead of one per fact. REQUIRES scope - the two " +
-				"memories number their facts separately, so [f3] means nothing without " +
-				"saying which of them you read it in.",
+				'Saturday". ONE fact - for several at once use longterm_forget_many. ' +
+				"REQUIRES scope - the two memories number their facts separately, so [f3] " +
+				"means nothing without saying which of them you read it in.",
 			parameters: {
 				type: "object",
 				properties: {
 					id: { type: "number", description: "The number inside [fN]." },
+					scope: ID_SCOPE_PARAM,
+				},
+				required: ["id", "scope"],
+			},
+			run: async (args) =>
+				controller.forget([num(args.id)], optScope(args.scope)),
+		},
+		{
+			// Its own tool rather than a second shape of the one above. A schema
+			// offering `id` OR `ids` asks the model to choose a form before it
+			// can act, and watched live it chose the singular and then repeated
+			// the call once per duplicate. Two tools, one shape each, and the
+			// name says which situation it is for.
+			name: "longterm_forget_many",
+			label: "Long-term memory: forget several",
+			description:
+				`${WHOSE} Drops SEVERAL facts in one call - duplicates of one another, or ` +
+				"a group that turned out wrong together. One call for the whole list, not " +
+				"one per fact. Same rules as longterm_forget, and REQUIRES scope: every id " +
+				"in the list must come from that one memory.",
+			parameters: {
+				type: "object",
+				properties: {
 					ids: {
 						type: "array",
 						items: { type: "number" },
 						description:
-							"Several such numbers, dropped in one call. Use this for a list.",
+							"The numbers inside [fN], all from the same memory: [2, 5, 6, 7].",
 					},
 					scope: ID_SCOPE_PARAM,
 				},
-				required: ["scope"],
+				required: ["ids", "scope"],
 			},
 			run: async (args) =>
 				controller.forget(numArray(args.ids, args.id), optScope(args.scope)),

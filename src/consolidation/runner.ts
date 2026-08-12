@@ -289,7 +289,8 @@ function isWrite(name: string): boolean {
 	return (
 		name === "longterm_remember" ||
 		name === "longterm_revise" ||
-		name === "longterm_forget"
+		name === "longterm_forget" ||
+		name === "longterm_forget_many"
 	);
 }
 

@@ -80,6 +80,7 @@ describe("the pages", () => {
 			"longterm_remember",
 			"longterm_revise",
 			"longterm_forget",
+			"longterm_forget_many",
 			"longterm_tags",
 			"longterm_link",
 			"longterm_unlink",

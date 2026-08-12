@@ -79,7 +79,7 @@ describe("what each tool files", () => {
 		const { call } = build();
 		await call("longterm_remember", { text: "a fact worth dropping" });
 		const { report } = await call("longterm_forget", {
-			ids: [0],
+			id: 0,
 			scope: "project",
 		});
 		if (report?.kind !== "forget") throw new Error("expected a forget");
@@ -89,7 +89,7 @@ describe("what each tool files", () => {
 
 	it("a forget that found nothing, so the terminal can say so", async () => {
 		const { call } = build();
-		const { report } = await call("longterm_forget", {
+		const { report } = await call("longterm_forget_many", {
 			ids: [42],
 			scope: "project",
 		});
@@ -221,7 +221,7 @@ describe("what a refusal files", () => {
 
 	it("nothing when a forget arrives without a scope", async () => {
 		const { call } = build();
-		const { report } = await call("longterm_forget", { ids: [0] });
+		const { report } = await call("longterm_forget", { id: 0 });
 		expect(report).toBeUndefined();
 	});
 });

@@ -181,14 +181,26 @@ describe("tool arguments", () => {
 });
 
 describe("the ids a forget can arrive with", () => {
-	it("accepts a list, a single id, or both", async () => {
+	// Two tools rather than one argument that changes shape: the singular takes
+	// `id`, the batch takes `ids`. A schema offering both asked the model to
+	// pick a form before it could act, and it picked the singular and repeated
+	// the call once per duplicate.
+	it("takes one id on the singular tool", async () => {
+		const { call, project } = build();
+		await call("longterm_remember", { text: "a durable fact" });
+		const answer = await call("longterm_forget", { id: 0, scope: "project" });
+		expect(answer).toContain("[f0] a durable fact");
+		expect(project.live()).toHaveLength(0);
+	});
+
+	it("accepts a list, and a stray single id alongside it", async () => {
 		const { call, project } = build();
 		for (const text of ["fact one", "fact two", "fact three"]) {
 			await call("longterm_remember", { text });
 		}
-		// `ids` and `id` together: a model that has seen the single-id form
-		// before will send both, and dropping either would lose a fact.
-		const answer = await call("longterm_forget", {
+		// A model that has seen the singular form will send `id` here too, and
+		// dropping either field would lose a fact.
+		const answer = await call("longterm_forget_many", {
 			ids: [0, 1],
 			id: 2,
 			scope: "project",
@@ -202,7 +214,7 @@ describe("the ids a forget can arrive with", () => {
 		// `Number("f3")` is NaN, and a NaN id addresses nothing.
 		const { call } = build();
 		await call("longterm_remember", { text: "a durable fact" });
-		const answer = await call("longterm_forget", {
+		const answer = await call("longterm_forget_many", {
 			ids: ["f0", null, 0],
 			scope: "project",
 		});
@@ -214,13 +226,13 @@ describe("the ids a forget can arrive with", () => {
 	it("says what it needs when the list is empty", async () => {
 		const { call } = build();
 		expect(
-			await call("longterm_forget", { ids: [], scope: "project" }),
+			await call("longterm_forget_many", { ids: [], scope: "project" }),
 		).toMatch(/no ids given/i);
 	});
 
 	it("still asks which memory when a list arrives without one", async () => {
 		const { call } = build();
-		expect(await call("longterm_forget", { ids: [3, 4] })).toMatch(
+		expect(await call("longterm_forget_many", { ids: [3, 4] })).toMatch(
 			/which memory/i,
 		);
 	});

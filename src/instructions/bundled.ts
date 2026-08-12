@@ -61,8 +61,8 @@ databases. The number alone never identifies a fact - the scope written above th
 section does.
 
 \`\`\`
-longterm_forget { "ids": [3], "scope": "user" }      <- read under the shared section
-longterm_forget { "ids": [0], "scope": "project" }   <- read under the project section
+longterm_forget { "id": 3, "scope": "user" }      <- read under the shared section
+longterm_forget { "id": 0, "scope": "project" }   <- read under the project section
 \`\`\`
 
 ## The block is a snapshot; a write makes the copies above it out of date
@@ -126,6 +126,7 @@ moment for a memory call at all.
 | you learned something durable | \`longterm_remember\` |
 | a stored fact changed | \`longterm_revise\` (needs \`scope\`) |
 | a stored fact was never true, or its date has passed | \`longterm_forget\` (needs \`scope\`) |
+| several stored facts must go - duplicates, or a group that was wrong together | \`longterm_forget_many\` (needs \`scope\`) |
 | you want the full tag list | \`longterm_tags\` |
 | it does not fit in one sentence | \`longterm_note_create\` |
 | you do not know how this memory itself works | \`longterm_about\` |
@@ -159,12 +160,14 @@ holds, so there is no need to search before writing.
   a compound sentence into separate calls with *different* text. Sending the same
   call twice does not store it harder: it was either kept or refused as a
   duplicate, and either way the next move is to carry on.
-- **\`longterm_forget\`: one call, as many ids as you like** - \`ids: [3, 4, 5]\`.
-  Clearing a list is one call, not one call per id.
+- **\`longterm_forget\`: one call, one id** - \`id: 3\`.
+- **\`longterm_forget_many\`: one call, the whole list** - \`ids: [3, 4, 5]\`.
+  Clearing duplicates is ONE call of this, never one \`longterm_forget\` per id.
 
 ## Which memory an id belongs to
 
-\`longterm_revise\` and \`longterm_forget\` **require** \`scope\` and have no default.
+\`longterm_revise\`, \`longterm_forget\` and \`longterm_forget_many\` **require**
+\`scope\` and have no default.
 "How to read what you are shown" says why, and how to tell which scope an id
 belongs to. \`longterm_ask\` and \`longterm_remember\` take \`scope\` optionally and
 use the project memory when you leave it out.
@@ -189,8 +192,8 @@ One question decides: **would this still be true in another project?**
 | who reads it | every session of every project | only sessions in this project |
 
 \`scope\` is optional on \`longterm_remember\` and \`longterm_ask\`, which use the
-project memory when you leave it out. It is REQUIRED on \`longterm_revise\` and
-\`longterm_forget\`, which have no default at all.
+project memory when you leave it out. It is REQUIRED on \`longterm_revise\`,
+\`longterm_forget\` and \`longterm_forget_many\`, which have no default at all.
 
 **When unsure, write to the project.** The costs are not symmetric: a wrong fact
 in the common memory is read at the start of every session everywhere, forever;
@@ -246,8 +249,8 @@ fits:
    \`longterm_forget\`. Keep the durable pattern behind it if there is one:
    "plays that game on weekday evenings" outlives "plays at 20:30 on Saturday".
 2. **Do two of them say the same thing?** -> \`longterm_revise\` the one you are
-   keeping into the clearer wording, then \`longterm_forget\` the rest in ONE
-   call with \`ids\`.
+   keeping into the clearer wording, then drop the rest in ONE
+   \`longterm_forget_many\` call.
 3. **Does it say three things at once?** -> write the atomic pieces FIRST with
    \`longterm_remember\`, then \`longterm_forget\` the original. That order
    matters: an interruption leaves redundancy, not a hole.
