@@ -38,6 +38,7 @@ import {
 	type ReadableMemory,
 	type WritableMemory,
 } from "../storage/port.ts";
+import { AboutDesk } from "../tools/about.ts";
 import { defined } from "../tools/args.ts";
 import { alwaysBlock, buildTail, clockLine } from "./tail.ts";
 
@@ -74,6 +75,14 @@ export interface ControllerDeps {
 	 */
 	repairProject?: (projectId: string) => Promise<string | undefined>;
 	now?: () => Date;
+	/**
+	 * Whether an environment variable holds anything - never what.
+	 *
+	 * Only `longterm_about`'s `current_settings` page uses it, to say whether
+	 * the configured key variable is empty. Typed as a boolean on purpose: no
+	 * caller can hand a secret back through it.
+	 */
+	hasEnv?: (name: string) => boolean;
 }
 
 export interface AskInput {
@@ -97,6 +106,8 @@ export class MemoryController {
 	private readonly askGuard = new AskGuard();
 	private readonly repeatGuard = new RepeatGuard();
 	private readonly now: () => Date;
+	/** The `longterm_about` pages, and this turn's budget for reading them. */
+	readonly about: AboutDesk;
 
 	/** The last computed block, held between refresh events so the tail is stable. */
 	private block = "";
@@ -118,6 +129,10 @@ export class MemoryController {
 		this.nudge = new WriteNudge(deps.settings.memory.nudge);
 		this.now = deps.now ?? (() => new Date());
 		this.manifestPending = deps.settings.memory.manifest;
+		this.about = new AboutDesk({
+			settings: deps.settings,
+			...defined({ hasEnv: deps.hasEnv }),
+		});
 	}
 
 	// -- lifecycle notes ----------------------------------------------------
@@ -128,6 +143,8 @@ export class MemoryController {
 		// A new request is a new run: the same question may be fair again.
 		this.askGuard.reset();
 		this.repeatGuard.reset();
+		// A new request may be about something the model has not read about yet.
+		this.about.reset();
 	}
 
 	noteToolCall(name: string): void {

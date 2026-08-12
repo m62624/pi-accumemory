@@ -20,6 +20,7 @@
  */
 
 import type { MemoryController } from "../session/controller.ts";
+import { ABOUT_DESCRIPTION, ABOUT_TOPICS, readAbout } from "./about.ts";
 import {
 	defined,
 	num,
@@ -47,6 +48,7 @@ export const LONGTERM_TOOL_NAMES = [
 	"longterm_note_read",
 	"longterm_note_update",
 	"longterm_note_delete",
+	"longterm_about",
 ] as const;
 
 export type LongtermToolName = (typeof LONGTERM_TOOL_NAMES)[number];
@@ -458,6 +460,28 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				return removed
 					? `Deleted note ${str(args.note_id)}.`
 					: `There is no note ${str(args.note_id)}.`;
+			},
+		},
+		{
+			name: "longterm_about",
+			label: "Long-term memory: how it works",
+			description: `${WHOSE} ${ABOUT_DESCRIPTION}`,
+			parameters: {
+				type: "object",
+				properties: {
+					topic: {
+						type: "string",
+						enum: [...ABOUT_TOPICS],
+						description:
+							"The single topic to read. Pick the one the question is actually " +
+							"about; there is no topic that returns everything.",
+					},
+				},
+				required: ["topic"],
+				additionalProperties: false,
+			},
+			async run(args) {
+				return readAbout(controller.about, args.topic);
 			},
 		},
 	];

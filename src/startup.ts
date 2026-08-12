@@ -278,6 +278,10 @@ export async function startSession(
 					}),
 				}),
 		router,
+		// Whether the key variable holds anything - never what. Read here, at
+		// the one place that already touches the process, so nothing below can
+		// reach an environment at all.
+		hasEnv: (name: string) => (process.env[name] ?? "") !== "",
 		// Another project's memory, read-only. A shared lock coexists with the
 		// writer a session in that project is holding, so the question is safe
 		// to ask while somebody is working there.

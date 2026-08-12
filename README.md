@@ -68,6 +68,15 @@ a fact ends up where nobody looks for it.
 | `longterm_tags` | the tags in use, with counts |
 | `longterm_link` / `longterm_unlink` | typed relationships between entities |
 | `longterm_note_*` | create, read, update and delete notes too long to be facts |
+| `longterm_about` | how this memory itself works, one topic per call |
+
+`longterm_about` is the odd one out: it reads no facts. A model asked how its
+memory works answers from whatever it can reconstruct, which is a plausible
+memory system rather than this one — and then acts on that description. So the
+answer is a document in this package instead: eight topics (`system`, `turn`,
+`scopes`, `writing`, `recall`, `consolidation`, `settings`, `current_settings`),
+one per call, three per turn. The pages can be long because only the turn that
+asks for one pays for it, which is what the always-on instructions can never do.
 
 Commands: `/longterm-status`, `/longterm-consolidate`, `/longterm-reembed`.
 

@@ -128,6 +128,12 @@ moment for a memory call at all.
 | a stored fact was never true, or its date has passed | \`longterm_forget\` (needs \`scope\`) |
 | you want the full tag list | \`longterm_tags\` |
 | it does not fit in one sentence | \`longterm_note_create\` |
+| you do not know how this memory itself works | \`longterm_about\` |
+
+\`longterm_about\` is the only one of these that is not about the project or the
+user - it reads out how this extension behaves. Call it rather than guessing when
+a write is refused, a fact is gone, a scope is unclear, or somebody asks what
+your memory is. One topic per call; three per turn.
 
 An empty answer is an answer. It means nothing is stored on the subject, so
 proceed - do not rephrase the question and try again.
