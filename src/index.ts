@@ -21,9 +21,9 @@ import { Text } from "@earendil-works/pi-tui";
 import { extensionLayout } from "./layout.ts";
 import type { Turn } from "./memory/transcript-view.ts";
 import {
+	isWriteReport,
 	modelReport,
 	shortReport,
-	type WriteReport,
 } from "./memory/write-report.ts";
 import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
 import { nodeFileOps } from "./node-fs.ts";
@@ -33,6 +33,7 @@ import { unfixableNotice } from "./session/stumbles.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
 import { longtermTools } from "./tools/definitions.ts";
+import { lazyController, MEMORY_UNAVAILABLE } from "./tools/lazy.ts";
 import {
 	type ProgressStep,
 	reembedProgressLines,
@@ -93,10 +94,15 @@ export default function accumemory(pi: ExtensionAPI): void {
 			parameters: spec.parameters as never,
 			execute: async (_id, params) => {
 				await ready;
+				// Whatever is being held is not this call's. The idle pass writes
+				// through this same controller and never renders anything, so its
+				// last report would otherwise sit there until the user's next tool
+				// call - any tool, including one that reads - picked it up and
+				// printed "Stored [fN]" over an answer that stored nothing.
+				session?.controller.takeLastWrite();
 				const text =
 					session === undefined
-						? (startupError ??
-							"Long-term memory is not available in this session.")
+						? (startupError ?? MEMORY_UNAVAILABLE)
 						: await spec.run((params ?? {}) as Record<string, unknown>);
 				// `content` is what the MODEL reads, and it always carries the
 				// full account - see `memory/write-report.ts` for why every part
@@ -109,9 +115,9 @@ export default function accumemory(pi: ExtensionAPI): void {
 				};
 			},
 			renderResult: (result, _options, _theme) => {
-				const detail = result.details as WriteReport | undefined;
+				const detail = result.details;
 				const mode = session?.settings.memory.writeOutput ?? "short";
-				if (detail === undefined) return new Text(resultText(result));
+				if (!isWriteReport(detail)) return new Text(resultText(result));
 				if (mode === "hidden") return new Text("");
 				return new Text(
 					mode === "full" ? modelReport(detail) : shortReport(detail),
@@ -326,43 +332,6 @@ export default function accumemory(pi: ExtensionAPI): void {
 		},
 	});
 }
-
-/**
- * A controller façade that resolves lazily.
- *
- * The tools are registered before the databases finish opening, because the
- * tool list belongs to the prompt head and must not change mid-session. This
- * bridges the gap: every call goes through whatever the controller is by then,
- * and a call that arrives before startup finished gets a sentence rather than a
- * crash.
- */
-function lazyController(get: () => StartedSession | undefined) {
-	const unavailable = "Long-term memory is not available in this session.";
-	const proxy = {
-		ask: async (input: Parameters<Controller["ask"]>[0]) =>
-			get()?.controller.ask(input) ?? unavailable,
-		askProject: async (project: string, question: string) =>
-			get()?.controller.askProject(project, question) ?? unavailable,
-		projects: async () => get()?.controller.projects() ?? unavailable,
-		remember: async (input: Parameters<Controller["remember"]>[0]) =>
-			get()?.controller.remember(input) ?? unavailable,
-		revise: async (...args: Parameters<Controller["revise"]>) =>
-			get()?.controller.revise(...args) ?? unavailable,
-		forget: async (...args: Parameters<Controller["forget"]>) =>
-			get()?.controller.forget(...args) ?? unavailable,
-		listTags: async (...args: Parameters<Controller["listTags"]>) =>
-			get()?.controller.listTags(...args) ?? unavailable,
-		link: async (...args: Parameters<Controller["link"]>) =>
-			get()?.controller.link(...args) ?? unavailable,
-		unlink: async (...args: Parameters<Controller["unlink"]>) =>
-			get()?.controller.unlink(...args) ?? unavailable,
-		notes: (...args: Parameters<Controller["notes"]>) =>
-			get()?.controller.notes(...args),
-	};
-	return proxy as unknown as Controller;
-}
-
-type Controller = StartedSession["controller"];
 
 function describe(error: unknown): string {
 	if (error instanceof Error) return error.message;

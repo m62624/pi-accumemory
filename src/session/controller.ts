@@ -38,7 +38,7 @@ import {
 	type ReadableMemory,
 	type WritableMemory,
 } from "../storage/port.ts";
-import { AboutDesk } from "../tools/about.ts";
+import { AboutDesk, readAbout as readAboutPage } from "../tools/about.ts";
 import { defined } from "../tools/args.ts";
 import type { StumbleKind, StumbleLog } from "./stumbles.ts";
 import { alwaysBlock, buildTail, clockLine } from "./tail.ts";
@@ -161,6 +161,17 @@ export class MemoryController {
 		this.repeatGuard.reset();
 		// A new request may be about something the model has not read about yet.
 		this.about.reset();
+	}
+
+	/**
+	 * One `longterm_about` page, budget included.
+	 *
+	 * A method rather than the desk itself, because everything the tools reach
+	 * for has to be reachable through the lazy façade too, and a façade can
+	 * stand in for a method in a way it cannot for a live object.
+	 */
+	readAbout(topic: unknown): string {
+		return readAboutPage(this.about, topic);
 	}
 
 	/**

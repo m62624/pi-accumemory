@@ -57,6 +57,20 @@ export interface NoteBody {
 	truncated: boolean;
 }
 
+/**
+ * Asked to change a note that is not there.
+ *
+ * A class rather than a bare `Error` so the tool layer can tell this apart from
+ * a disk that failed and answer the model with a sentence, without a catch wide
+ * enough to swallow the failure it must not hide.
+ */
+export class UnknownNoteError extends Error {
+	constructor(readonly noteId: string) {
+		super(`notes: unknown note ${noteId}`);
+		this.name = "UnknownNoteError";
+	}
+}
+
 export class NoteStore {
 	private readonly fs: FileOps;
 	private readonly dir: string;
@@ -127,7 +141,7 @@ export class NoteStore {
 	): Promise<NoteRef> {
 		assertNoteId(noteId);
 		const pointer = await this.pointer(noteId);
-		if (pointer === undefined) throw new Error(`notes: unknown note ${noteId}`);
+		if (pointer === undefined) throw new UnknownNoteError(noteId);
 		await this.fs.writeFile(this.nativePath(noteId), content);
 
 		const newTitle = title ?? pointer.title;

@@ -19,8 +19,9 @@
  * miss on the entire prompt.
  */
 
+import { UnknownNoteError } from "../notes/store.ts";
 import type { MemoryController } from "../session/controller.ts";
-import { ABOUT_DESCRIPTION, ABOUT_TOPICS, readAbout } from "./about.ts";
+import { ABOUT_DESCRIPTION, ABOUT_TOPICS } from "./about.ts";
 import {
 	defined,
 	num,
@@ -105,7 +106,32 @@ export interface ToolSpec {
 	run(args: Record<string, unknown>): Promise<string>;
 }
 
-export function longtermTools(controller: MemoryController): ToolSpec[] {
+/**
+ * Exactly what the tools call on the controller, and nothing else.
+ *
+ * Derived from the controller with `Pick` rather than written out, so a
+ * signature can never drift from the real one. Its job is to be implementable:
+ * the class itself carries private state, so a stand-in for it - the lazy façade
+ * in `lazy.ts` - could only ever be cast into place, and a cast is where a
+ * missing member stops being a build error and becomes a crash at the first
+ * call.
+ */
+export type ToolController = Pick<
+	MemoryController,
+	| "ask"
+	| "askProject"
+	| "projects"
+	| "remember"
+	| "revise"
+	| "forget"
+	| "listTags"
+	| "link"
+	| "unlink"
+	| "notes"
+	| "readAbout"
+>;
+
+export function longtermTools(controller: ToolController): ToolSpec[] {
 	const specs: ToolSpec[] = [
 		{
 			name: "longterm_ask",
@@ -433,12 +459,24 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 			run: async (args) => {
 				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
-				const updated = await notes.update(
-					str(args.note_id),
-					str(args.content),
-					optStr(args.title),
-				);
-				return `Updated note ${updated.noteId}.`;
+				try {
+					const updated = await notes.update(
+						str(args.note_id),
+						str(args.content),
+						optStr(args.title),
+					);
+					return `Updated note ${updated.noteId}.`;
+				} catch (error) {
+					// An id that is not there is an ordinary answer, not a fault:
+					// the same wrong id given to note_read and note_delete gets a
+					// sentence, and an exception here would reach the model as a
+					// tool that broke rather than a note that is missing.
+					if (!(error instanceof UnknownNoteError)) throw error;
+					return (
+						`There is no note ${error.noteId} in ${scopeOf(args.scope)} memory. ` +
+						"Check the scope, or create it with longterm_note_create."
+					);
+				}
 			},
 		},
 		{
@@ -481,7 +519,7 @@ export function longtermTools(controller: MemoryController): ToolSpec[] {
 				additionalProperties: false,
 			},
 			async run(args) {
-				return readAbout(controller.about, args.topic);
+				return controller.readAbout(args.topic);
 			},
 		},
 	];
