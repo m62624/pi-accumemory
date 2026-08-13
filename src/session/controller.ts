@@ -870,27 +870,63 @@ export class MemoryController {
 		);
 	}
 
+	/**
+	 * The tags in use, in one memory or in both.
+	 *
+	 * `"both"` reads both, and that has to be said because it did not always:
+	 * this used to resolve the scope the way a WRITE does, where "both" is not a
+	 * destination and everything that is not "user" is the project. A read has
+	 * no such excuse, and the bug was invisible in the worst way - a memory full
+	 * of tags answered "No tags yet." because the other one was empty, and the
+	 * model went on to invent tags beside the ones already in use.
+	 *
+	 * A cursor names a page of ONE catalogue, so it is only accepted with one
+	 * scope. Applying it to two would page them in lockstep and skip whatever
+	 * the shorter one had left.
+	 */
 	async listTags(
 		scope: Scope = "project",
 		prefix?: string,
 		cursor?: string,
 	): Promise<string> {
-		const memory = this.readableScope(scope);
-		if (memory === undefined) return this.noProjectMessage();
-		const page = await memory.listTags(defined({ prefix, cursor }));
+		const scopes = this.readableScopes(scope);
+		if (scopes.length === 0) return this.noProjectMessage();
+		if (cursor !== undefined && scopes.length > 1) {
+			return (
+				'A cursor belongs to one memory\'s tag list, so it needs one scope: call again with scope: "project" ' +
+				'or scope: "user" and the same cursor.'
+			);
+		}
+
+		const sections: string[] = [];
+		let count = 0;
+		let more = false;
+		for (const [, label, memory] of scopes) {
+			const page = await memory.listTags(defined({ prefix, cursor }));
+			count += page.items.length;
+			more ||= page.nextCursor !== undefined;
+			const listed =
+				page.items.length === 0
+					? "no tags yet"
+					: page.items.map((tag) => `${tag.name}(${tag.count})`).join(" ");
+			const tail =
+				page.nextCursor === undefined
+					? ""
+					: `\nMore follow; pass cursor="${page.nextCursor}" with this scope to continue.`;
+			// One memory answers bare, the way it always has. Two are labelled,
+			// because the same tag in both is two piles of facts, not one.
+			sections.push(
+				scopes.length === 1 ? `${listed}${tail}` : `${label}: ${listed}${tail}`,
+			);
+		}
 		this.record({
 			kind: "tags",
 			scopeLabel: this.label(scope),
-			count: page.items.length,
-			more: page.nextCursor !== undefined,
+			count,
+			more,
 		});
-		if (page.items.length === 0) return "No tags yet.";
-		const listed = page.items
-			.map((tag) => `${tag.name}(${tag.count})`)
-			.join(" ");
-		return page.nextCursor === undefined
-			? listed
-			: `${listed}\n\nMore tags follow; pass cursor="${page.nextCursor}" to continue.`;
+		if (count === 0) return "No tags yet.";
+		return sections.join("\n");
 	}
 
 	async link(
@@ -1030,7 +1066,18 @@ export class MemoryController {
 			: projectEntity(this.deps.projectId);
 	}
 
-	private readableScope(scope: Scope): ReadableMemory | undefined {
+	/**
+	 * One memory, named exactly.
+	 *
+	 * `"both"` is deliberately not accepted: it is not a memory, and the last
+	 * time this took it, it silently answered with the project's - see
+	 * {@link listTags}. Anything that means "both" goes through
+	 * {@link readableScopes}, which returns them all and makes the caller say
+	 * which is which.
+	 */
+	private readableScope(
+		scope: Exclude<Scope, "both">,
+	): ReadableMemory | undefined {
 		return scope === "user" ? this.deps.common : this.deps.project;
 	}
 

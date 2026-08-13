@@ -131,6 +131,76 @@ describe("MemoryController.listTags", () => {
 		const page = await controller.listTags("project", undefined, "0");
 		expect(page).toBeDefined();
 	});
+
+	it('reads BOTH memories when asked for "both"', async () => {
+		// The bug this pins, measured in a real session: the user memory held
+		// five tags, the project memory none, and `scope: "both"` answered "No
+		// tags yet." - after which the model invented tags beside the ones
+		// already in use, which is exactly what this tool exists to prevent.
+		const { controller } = build();
+		await controller.remember({
+			text: "a project decision",
+			tags: ["decision"],
+		});
+		await controller.remember({
+			text: "the user prefers short answers",
+			scope: "user",
+			tags: ["preference"],
+		});
+		const both = await controller.listTags("both");
+		expect(both).toContain("decision(1)");
+		expect(both).toContain("preference(1)");
+	});
+
+	it("says which memory each tag list belongs to", async () => {
+		// The same word in two memories is two piles of facts, not one, and a
+		// bare merged list would read as one.
+		const { controller } = build();
+		await controller.remember({
+			text: "a project decision",
+			tags: ["decision"],
+		});
+		await controller.remember({
+			text: "the user prefers short answers",
+			scope: "user",
+			tags: ["preference"],
+		});
+		const both = await controller.listTags("both");
+		expect(both).toMatch(/this project.*decision\(1\)/);
+		expect(both).toMatch(/user.*preference\(1\)/);
+	});
+
+	it("still answers bare when one memory was asked for", async () => {
+		const { controller } = build();
+		await controller.remember({
+			text: "a project decision",
+			tags: ["decision"],
+		});
+		expect(await controller.listTags("project")).toBe("decision(1)");
+	});
+
+	it("names the empty half rather than hiding it", async () => {
+		// "no tags yet" against one of the two is information: it says where a
+		// vocabulary does NOT exist, which is where a new tag is free.
+		const { controller } = build();
+		await controller.remember({
+			text: "the user prefers short answers",
+			scope: "user",
+			tags: ["preference"],
+		});
+		const both = await controller.listTags("both");
+		expect(both).toMatch(/this project.*no tags yet/);
+		expect(both).toContain("preference(1)");
+	});
+
+	it("refuses a cursor that could belong to either memory", async () => {
+		// A cursor names a page of ONE catalogue. Applying it to two would page
+		// them in lockstep and skip whatever the shorter one had left.
+		const { controller } = build();
+		expect(await controller.listTags("both", undefined, "0")).toMatch(
+			/needs one scope/i,
+		);
+	});
 });
 
 describe("MemoryController.link", () => {

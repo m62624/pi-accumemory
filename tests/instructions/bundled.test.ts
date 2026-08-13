@@ -23,6 +23,30 @@ describe("BUNDLED_INSTRUCTIONS", () => {
 		);
 	});
 
+	it("separates a question ABOUT the memory from a question FOR it", () => {
+		// Measured in a real session: asked to name its own rules for the memory,
+		// a local model ran longterm_ask three times and found nothing, because
+		// "instruction" is both a rule it was given and a tag on a stored fact.
+		// Only the second one lives in the memory.
+		expect(BUNDLED_INSTRUCTIONS.memory).toMatch(
+			/question ABOUT the memory is not a question FOR the memory/,
+		);
+		expect(BUNDLED_INSTRUCTIONS.memory).toContain("longterm_about");
+		// The ambiguity itself is named, not just the rule.
+		expect(BUNDLED_INSTRUCTIONS.memory).toMatch(/word \*instruction\*/);
+	});
+
+	it("names a correction as the durable fact it is", () => {
+		// The same session stored nothing at all, including "do not run the
+		// tests" - a standing preference that costs a repeat every session it is
+		// missing. It arrives as an interruption, which is what makes it feel
+		// like something to apologise for rather than something to keep.
+		expect(BUNDLED_INSTRUCTIONS.memory).toMatch(/\*\*a correction\.\*\*/);
+		expect(BUNDLED_INSTRUCTIONS.memory).toMatch(
+			/the user corrected you.*longterm_remember/i,
+		);
+	});
+
 	it("forbids credentials in plain words", () => {
 		expect(BUNDLED_INSTRUCTIONS.secrets).toMatch(/never store/i);
 		expect(BUNDLED_INSTRUCTIONS.secrets).toMatch(/\.env/);

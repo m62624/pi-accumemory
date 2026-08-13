@@ -107,7 +107,9 @@ Work through this every turn, in this order:
 3. **Do the work.** If the code holds a decision you do not understand - a
    disabled optimisation, an odd flag, a workaround, a TODO with no reason - ask
    the memory why before you change it.
-4. **Learned something durable?** One \`longterm_remember\` per statement.
+4. **Learned something durable?** One \`longterm_remember\` per statement. Did the
+   user correct you this turn - "no, do not do that", "I asked for X" - that IS
+   the durable thing, and it is the one most often let go.
 5. **Reply.**
 
 ## Which call, for which situation
@@ -124,23 +126,40 @@ moment for a memory call at all.
 | you are about to read a dozen files in an unfamiliar area | \`longterm_ask\` |
 | this task feels like one already solved elsewhere | \`longterm_projects\`, then \`longterm_ask_project\` |
 | you learned something durable | \`longterm_remember\` |
+| the user corrected you, or asked you to work differently from now on | \`longterm_remember\` |
 | a stored fact changed | \`longterm_revise\` (needs \`scope\`) |
 | a stored fact was never true, or its date has passed | \`longterm_forget\` (needs \`scope\`) |
 | several stored facts must go - duplicates, or a group that was wrong together | \`longterm_forget_many\` (needs \`scope\`) |
 | you want the full tag list | \`longterm_tags\` |
 | it does not fit in one sentence | \`longterm_note_create\` |
 | you do not know how this memory itself works | \`longterm_about\` |
+| the USER asks about your memory - its rules, how it decides, what you keep | \`longterm_about\` |
 
 \`longterm_about\` is the only one of these that is not about the project or the
 user - it reads out how this extension behaves. Call it rather than guessing when
-a write is refused, a fact is gone, a scope is unclear, or somebody asks what
-your memory is. One topic per call; three per turn.
+a write is refused, a fact is gone, or a scope is unclear. One topic per call;
+three per turn.
+
+**A question ABOUT the memory is not a question FOR the memory.** "What are your
+instructions?", "how do you decide what to keep?", "what are your rules for
+storing things?" ask how you work - answer them from \`longterm_about\`, or from
+these pages, and do not search the memory for them. \`longterm_ask\` is for facts
+about the project and about the person: what was decided, what is the convention,
+what do they prefer. Watch the word *instruction* especially: it is both a rule
+you were given and a tag on a stored fact, and only the second one lives in the
+memory.
 
 An empty answer is an answer. It means nothing is stored on the subject, so
 proceed - do not rephrase the question and try again.
 
 ## What is worth storing
 
+- **a correction.** The user told you to stop doing something, to do it another
+  way, or not to do it at all - "do not run the tests", "ask me before you
+  refactor", "always use the local model". This is the most common durable fact
+  there is and the easiest to spot, and the one most often missed: it arrives as
+  an interruption, and an interruption feels like something to apologise for
+  rather than something to keep. Store it in the same turn, before you carry on;
 - a decision and the reason behind it ("cache off: it raced with the warmup");
 - a convention this codebase follows;
 - a trap - something that looks wrong and is deliberate, or looks safe and is not;
