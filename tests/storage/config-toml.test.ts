@@ -97,12 +97,22 @@ describe("DEFAULT_PLUGMEM_CONFIG", () => {
 		expect(DEFAULT_PLUGMEM_CONFIG).toContain("enabled = false");
 	});
 
-	it("says that [database] and [workspace] do nothing here", () => {
-		// Every database is opened by an explicit path, so those two sections
-		// are the one trap this file can set for somebody configuring it.
-		expect(DEFAULT_PLUGMEM_CONFIG).toMatch(
-			/\[database\] and \[workspace\] .*do nothing/,
-		);
+	it("names every key it would be wasted effort to set", () => {
+		// The one trap this file can set for somebody configuring it. Named one by
+		// one rather than as "those two sections", because a person setting
+		// max_open has no other way to learn that the extension overrides it.
+		for (const key of [
+			"[database].path",
+			"[workspace].dir",
+			"[workspace].max_open",
+			"[workspace].idle_timeout_ms",
+		]) {
+			expect(
+				DEFAULT_PLUGMEM_CONFIG,
+				`${key} is not named as ineffective`,
+			).toContain(key);
+		}
+		expect(DEFAULT_PLUGMEM_CONFIG).toMatch(/does not move the databases/);
 	});
 
 	it("carries no credential, only the name of a variable", () => {

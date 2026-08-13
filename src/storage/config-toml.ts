@@ -31,10 +31,17 @@ export const DEFAULT_PLUGMEM_CONFIG = `# plugmem's configuration for pi-accumemo
 # defaults. The full list, with every default and what it is for, is in
 # plugmem's config.example.toml and SETTINGS.md.
 #
-# [database] and [workspace] are the exception: they do nothing here. Every
-# database is opened by an explicit path (one per project, plus the shared one),
-# so nothing in this file decides where they live. What DOES apply to all of
-# them is everything below, plus [recall] and [maintenance] if you add them.
+# Four keys are read by nothing here, so setting them is wasted effort:
+#
+#   [database].path            - every memory is opened by an explicit path (one
+#   [workspace].dir              per project, plus the shared one), so neither of
+#                                these decides where anything lives. Moving THIS
+#                                file elsewhere does not move the databases.
+#   [workspace].max_open       - the workspace pool is not used at all: this
+#   [workspace].idle_timeout_ms  extension opens each database itself.
+#
+# Everything else applies to every memory here - [engine], [embedder], and
+# [recall] / [maintenance] if you add them.
 
 [engine]
 # Embedding width. It has to match what the model actually returns, and it is
