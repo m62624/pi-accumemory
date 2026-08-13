@@ -58,10 +58,19 @@ function tomlString(value: string): string {
  * weights, index thresholds, maintenance triggers — stays at plugmem's tuned
  * defaults, because a knob this project exposes is a knob it has to explain.
  *
- * `dim` is written even when the embedder is disabled, and that is deliberate:
- * the width is baked into every database at creation, so declaring the intended
- * one up front means switching the embedder on later costs a reembed rather
- * than a rebuild from scratch.
+ * `dim` is written even when the embedder is disabled, and that is deliberate -
+ * but not for the reason it looks like. It is NOT that the width is fixed at
+ * creation: an existing file is authoritative about its own stride (plugmem
+ * adopts `stored.dim` when it loads a snapshot), and a reembed rebuilds the
+ * pool at the new width and re-encodes every fact from its text. A database
+ * built with no embedder at all can be given vectors later by `/longterm-reembed`
+ * alone.
+ *
+ * What it buys is that the two places a dimension is stated cannot disagree.
+ * The databases are opened with `dim` from settings, and plugmem refuses an
+ * open whose `dim` contradicts the embedder declared in this file. Writing both
+ * from the same setting means that refusal can only be reached by editing
+ * `config.toml` by hand - which the header above says not to do.
  */
 export function buildPlugmemConfig(embedder: EmbedderSettings): string {
 	const lines = [
