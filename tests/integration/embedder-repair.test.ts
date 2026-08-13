@@ -24,6 +24,10 @@ import {
 } from "../../src/settings/defaults.ts";
 import { type StartedSession, startSession } from "../../src/startup.ts";
 import {
+	writeConfigWithoutEmbedder,
+	writeEmbedderConfig,
+} from "../helpers/plugmem-config.ts";
+import {
 	type StubEmbedder,
 	startStubEmbedder,
 } from "../helpers/stub-embedder.ts";
@@ -55,15 +59,26 @@ describe("vector repair", () => {
 	let embedder: StubEmbedder;
 	const started: StartedSession[] = [];
 
-	function settingsWith(patch: (draft: Settings) => void): Settings {
+	function settingsWith(patch: (draft: Settings) => void = () => {}): Settings {
 		const draft = structuredClone(DEFAULT_SETTINGS);
-		draft.memory.embedder.enabled = true;
-		draft.memory.embedder.url = embedder.url;
-		draft.memory.embedder.model = "stub";
-		draft.memory.embedder.dim = embedder.dim;
 		draft.memory.consolidation.enabled = false;
 		patch(draft);
 		return draft;
+	}
+
+	/** The file the next session will open with; rewritten to change it. */
+	function configFile(): string {
+		return extensionLayout(agentDir, path).configToml;
+	}
+
+	/** Points the config at the stub service, optionally in another space. */
+	async function configureEmbedder(spaceId?: string): Promise<void> {
+		await writeEmbedderConfig(configFile(), {
+			url: embedder.url,
+			model: "stub",
+			dim: embedder.dim,
+			...(spaceId === undefined ? {} : { spaceId }),
+		});
 	}
 
 	beforeEach(async () => {
@@ -97,18 +112,16 @@ describe("vector repair", () => {
 		// Without the repair this session's every text lookup and every text
 		// write fails with `vector space mismatch`, and the user finds out in
 		// the middle of a task rather than at startup.
-		const first = await start(settingsWith(() => {}));
+		await configureEmbedder();
+		const first = await start(settingsWith());
 		await first.controller.remember({
 			text: "the cache is disabled because it raced with the warmup task",
 		});
 		first.close();
 		started.pop();
 
-		const second = await start(
-			settingsWith((draft) => {
-				draft.memory.embedder.spaceId = "a-deliberately-different-space";
-			}),
-		);
+		await configureEmbedder("a-deliberately-different-space");
+		const second = await start(settingsWith());
 		expect(second.notices.join(" ")).toMatch(/embedding model changed/i);
 		expect(second.notices.join(" ")).toMatch(/nothing was lost/i);
 		// The point: it answers, rather than throwing.
@@ -118,17 +131,18 @@ describe("vector repair", () => {
 	});
 
 	it("reports instead of repairing when told to", async () => {
-		const first = await start(settingsWith(() => {}));
+		await configureEmbedder();
+		const first = await start(settingsWith());
 		await first.controller.remember({
 			text: "biome is the formatter used here",
 		});
 		first.close();
 		started.pop();
 
+		await configureEmbedder("another-space");
 		const second = await start(
 			settingsWith((draft) => {
-				draft.memory.embedder.spaceId = "another-space";
-				draft.memory.embedder.autoReembed = false;
+				draft.memory.autoReembed = false;
 			}),
 		);
 		expect(second.notices.join(" ")).toContain("/longterm-reembed");
@@ -137,16 +151,16 @@ describe("vector repair", () => {
 	it("fills in vectors for facts stored before the embedder existed", async () => {
 		// The quiet case: nothing errors, meaning-based recall just answers from
 		// the fraction of the memory that has vectors and says nothing about it.
-		const withoutEmbedder = structuredClone(DEFAULT_SETTINGS);
-		withoutEmbedder.memory.consolidation.enabled = false;
-		const first = await start(withoutEmbedder);
+		await writeConfigWithoutEmbedder(configFile());
+		const first = await start(settingsWith());
 		await first.controller.remember({
 			text: "the cache is disabled because it raced with the warmup task",
 		});
 		first.close();
 		started.pop();
 
-		const second = await start(settingsWith(() => {}));
+		await configureEmbedder();
+		const second = await start(settingsWith());
 		expect(second.notices.join(" ")).toMatch(/filled in/i);
 		expect(await second.controller.ask({ question: "warmup cache" })).toContain(
 			"warmup",
@@ -156,7 +170,8 @@ describe("vector repair", () => {
 	it("rebuilds every database on demand", async () => {
 		// What /longterm-reembed does, including the database this session is
 		// itself holding the writer for.
-		const session = await start(settingsWith(() => {}));
+		await configureEmbedder();
+		const session = await start(settingsWith());
 		await session.controller.remember({ text: "vitest runs the tests here" });
 		const before = embedder.embedded();
 		const { steps } = await session.reembed();
@@ -186,15 +201,17 @@ describe.skipIf(!available)("semantic recall on a real embedder", () => {
 		// stub can stand in for. These two share almost no vocabulary; lexical
 		// retrieval alone connects them to nothing.
 		const settings = structuredClone(DEFAULT_SETTINGS);
-		settings.memory.embedder.enabled = true;
-		settings.memory.embedder.url = OLLAMA_URL;
-		settings.memory.embedder.model = OLLAMA_MODEL;
-		settings.memory.embedder.dim = OLLAMA_DIM;
 		settings.memory.consolidation.enabled = false;
+		const layout = extensionLayout(path.join(root, "agent"), path);
+		await writeEmbedderConfig(layout.configToml, {
+			url: OLLAMA_URL,
+			model: OLLAMA_MODEL,
+			dim: OLLAMA_DIM,
+		});
 
 		const session = await startSession({
 			settings,
-			layout: extensionLayout(path.join(root, "agent"), path),
+			layout,
 			fs: nodeFileOps,
 			pathModule: path,
 			agentDir: path.join(root, "agent"),

@@ -51,3 +51,24 @@ export function isVectorSpaceMismatch(error: unknown): boolean {
 }
 
 export const PLUGMEM_ENGINE = "PLUGMEM_ENGINE";
+
+/**
+ * The embedding provider could not be reached, or answered with something
+ * unusable, and the engine was told to fail rather than carry on.
+ *
+ * Only reachable under `on_error = "fail"`: with the default this extension
+ * writes, `"degrade"`, plugmem stores and answers without the vector instead
+ * and suspends the embedder, so nothing throws at all. Someone who chose to
+ * fail chose to be told - but "PLUGMEM_ENGINE: embedder: error sending
+ * request" reaching the model as a tool error tells the wrong reader in the
+ * wrong words, and the model then decides the memory is broken.
+ *
+ * The engine reports it as `PLUGMEM_ENGINE` with a message that starts at the
+ * embedder, so the message is what identifies it - the code alone covers every
+ * engine failure there is.
+ */
+export function isEmbedderFailure(error: unknown): boolean {
+	if (errorCode(error) !== PLUGMEM_ENGINE) return false;
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("embedder:");
+}

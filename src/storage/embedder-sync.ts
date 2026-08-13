@@ -2,7 +2,7 @@
  * Keeping the stored vectors in step with the configured embedder, without the
  * user having to know that is a thing.
  *
- * Two ways they fall out of step, and they fail very differently:
+ * Three ways they fall out of step, and they fail very differently:
  *
  * 1. **The semantic space changed** - a different model, or a different
  *    `space_id`. plugmem guards this properly and loudly, and nothing is lost;
@@ -21,10 +21,16 @@
  * 2. **Vectors are missing** - the embedder was switched on over a database
  *    built without one, or with `dim: 0`. Nothing errors. The old facts simply
  *    have no vectors, so meaning-based recall answers from a fraction of the
- *    memory and reports nothing. This is the quieter and more misleading of
- *    the two.
+ *    memory and reports nothing. This is the quietest and most misleading of
+ *    the three.
+ * 3. **The provider is unreachable** - with `on_error = "degrade"`, plugmem
+ *    stores and answers without the vector and suspends the embedder instead of
+ *    failing the call. Nothing is damaged, and the facts written meanwhile land
+ *    in exactly the state case 2 describes, so the same repair finishes the job
+ *    once the provider is back. What must NOT happen is repairing it now: a
+ *    reembed refuses while the embedder is suspended.
  *
- * Both are repaired by the same operation, and the repair is idempotent: a
+ * All three are repaired by the same operation, and the repair is idempotent: a
  * reembed that was interrupted leaves the facts it finished with their new
  * vectors, so running it again simply completes the job.
  *
@@ -35,7 +41,7 @@
  */
 
 import { isVectorSpaceMismatch, PLUGMEM_ENGINE } from "./errors.ts";
-import type { MemoryStats } from "./port.ts";
+import type { EmbedderState, MemoryStats } from "./port.ts";
 
 export { PLUGMEM_ENGINE };
 
@@ -45,12 +51,14 @@ export interface Reembeddable {
 	stats(): Promise<MemoryStats>;
 	reembed(): Promise<void>;
 	checkpoint(): Promise<void>;
+	embedderState(): EmbedderState;
 }
 
 export type VectorSyncAction =
 	| "none"
 	| "space-changed"
 	| "backfilled"
+	| "suspended"
 	| "failed";
 
 export interface VectorSyncResult {
@@ -60,8 +68,6 @@ export interface VectorSyncResult {
 }
 
 export interface VectorSyncOptions {
-	/** Nothing to keep in step when there is no embedder. */
-	embedderEnabled: boolean;
 	/** Set false to detect and report without rebuilding. */
 	autoReembed?: boolean;
 	/** Names the database in the notice. */
@@ -79,11 +85,31 @@ export async function syncVectorSpace(
 	store: Reembeddable,
 	options: VectorSyncOptions,
 ): Promise<VectorSyncResult> {
-	if (!options.embedderEnabled) return { action: "none", notice: "" };
+	// Asked of the engine rather than taken from settings: what matters here is
+	// whether an embedder is actually there, and the answer to that lives in the
+	// config file plugmem read, not in ours.
+	if (embedderState(store) === "absent") {
+		return { action: "none", notice: "" };
+	}
 	const autoReembed = options.autoReembed ?? true;
 
 	const mismatched = await hasSpaceMismatch(store);
 	if (mismatched === "unknown") return { action: "none", notice: "" };
+
+	// The probe above is a real embedding call, so an unreachable provider has
+	// just been discovered by it and, under `on_error = "degrade"`, suspended.
+	// Rebuilding now is not an option the engine offers - a reembed refuses
+	// while suspended rather than publishing half a vector space - and it would
+	// be the wrong thing to want anyway.
+	if (embedderState(store) === "suspended") {
+		return {
+			action: "suspended",
+			notice:
+				`The embedding service is not answering, so ${options.label} works without vectors for now: ` +
+				"facts are still stored and still found by wording, just not by meaning. It retries by " +
+				"itself, and /longterm-reembed fills in what was missed.",
+		};
+	}
 
 	if (mismatched === "yes") {
 		if (!autoReembed) {
@@ -174,6 +200,21 @@ async function hasSpaceMismatch(
 		return "no";
 	} catch (error) {
 		return isVectorSpaceMismatch(error) ? "yes" : "unknown";
+	}
+}
+
+/**
+ * The engine's own answer, and `absent` when it cannot be asked.
+ *
+ * Treating an unanswerable question as "no embedder" keeps this module doing
+ * nothing rather than doing something on a guess, which is the same rule as
+ * {@link hasSpaceMismatch}'s `"unknown"`.
+ */
+function embedderState(store: Reembeddable): EmbedderState {
+	try {
+		return store.embedderState();
+	} catch {
+		return "absent";
 	}
 }
 

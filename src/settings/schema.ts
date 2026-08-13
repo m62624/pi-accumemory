@@ -38,6 +38,8 @@ const SCHEMA: Record<string, FieldSpec> = {
 			graphDepth: { kind: "count", nullable: true },
 			manifest: BOOL,
 			queryMaxChars: COUNT,
+			plugmemConfig: { kind: "string", nullable: true },
+			autoReembed: BOOL,
 			refresh: {
 				kind: "section",
 				fields: {
@@ -54,7 +56,6 @@ const SCHEMA: Record<string, FieldSpec> = {
 					model: { kind: "string" },
 					apiKeyEnv: { kind: "string", nullable: true },
 					spaceId: { kind: "string", nullable: true },
-					autoReembed: BOOL,
 					dim: COUNT,
 				},
 			},
@@ -126,14 +127,44 @@ export function parseSettings(raw: unknown): ParsedSettings {
 		string,
 		unknown
 	>;
-	overlay(settings, raw, SCHEMA, "", warnings);
+	overlay(settings, raw, SCHEMA, "", warnings, settings);
 	return { settings: settings as unknown as Settings, warnings };
 }
 
-/** Old dotted names, and what they are called now. */
+/**
+ * Old dotted names, and what they are called now.
+ *
+ * The new name is a full path, not a sibling key: `autoReembed` left the
+ * embedder section when the rest of that section moved into plugmem's own
+ * `config.toml`, and a rename that could only rename within one level would
+ * have had to drop it.
+ */
 const RENAMED: Record<string, string> = {
 	"memory.writeOutput": "memory.output",
+	"memory.embedder.autoReembed": "memory.autoReembed",
 };
+
+/** The spec a dotted path names, or `undefined` when nothing does. */
+function specAt(dotted: string): FieldSpec | undefined {
+	let fields: Record<string, FieldSpec> = SCHEMA;
+	let spec: FieldSpec | undefined;
+	for (const part of dotted.split(".")) {
+		spec = fields[part];
+		if (spec === undefined) return undefined;
+		if (spec.kind === "section") fields = spec.fields;
+	}
+	return spec;
+}
+
+/** Writes a value at a dotted path that the schema has already vouched for. */
+function setAt(root: Record<string, unknown>, dotted: string, value: unknown) {
+	const parts = dotted.split(".");
+	const last = parts.pop();
+	if (last === undefined) return;
+	let target = root;
+	for (const part of parts) target = target[part] as Record<string, unknown>;
+	target[last] = value;
+}
 
 function overlay(
 	target: Record<string, unknown>,
@@ -141,6 +172,8 @@ function overlay(
 	schema: Record<string, FieldSpec>,
 	prefix: string,
 	warnings: string[],
+	/** The whole document, so a rename can land in another section. */
+	root: Record<string, unknown>,
 ): void {
 	for (const [key, value] of Object.entries(source)) {
 		const dotted = prefix === "" ? key : `${prefix}.${key}`;
@@ -152,11 +185,10 @@ function overlay(
 			warnings.push(
 				`settings: "${dotted}" is now "${renamed}"; the old name still works`,
 			);
-			target[renamed.split(".").pop() ?? renamed] = checkScalar(
-				dotted,
-				value,
-				schema[renamed.split(".").pop() ?? renamed] as FieldSpec,
-			);
+			const spec = specAt(renamed);
+			if (spec !== undefined) {
+				setAt(root, renamed, checkScalar(dotted, value, spec));
+			}
 			continue;
 		}
 		const spec = schema[key];
@@ -174,6 +206,7 @@ function overlay(
 				spec.fields,
 				dotted,
 				warnings,
+				root,
 			);
 			continue;
 		}

@@ -33,8 +33,9 @@ import type { NoteStore } from "../notes/store.ts";
 import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import type { Settings } from "../settings/defaults.ts";
-import { isVectorSpaceMismatch } from "../storage/errors.ts";
+import { isEmbedderFailure, isVectorSpaceMismatch } from "../storage/errors.ts";
 import {
+	type EmbedderState,
 	liveFacts,
 	type ReadableMemory,
 	type WritableMemory,
@@ -78,20 +79,20 @@ export interface ControllerDeps {
 	repairProject?: (projectId: string) => Promise<string | undefined>;
 	now?: () => Date;
 	/**
-	 * Whether an environment variable holds anything - never what.
-	 *
-	 * Only `longterm_about`'s `current_settings` page uses it, to say whether
-	 * the configured key variable is empty. Typed as a boolean on purpose: no
-	 * caller can hand a secret back through it.
-	 */
-	hasEnv?: (name: string) => boolean;
-	/**
 	 * Real paths on this machine, for `longterm_about`'s settings pages.
 	 *
 	 * Passed rather than described, because only `layout` knows them - see
 	 * `AboutDeps`.
 	 */
 	paths?: { settingsFile: string; memoryDir: string };
+	/**
+	 * The engine as it is right now, for `longterm_about`'s settings page.
+	 *
+	 * The embedder is the one setting that changes under the session's feet: a
+	 * provider that stops answering suspends it, and a model that cannot see
+	 * that explains a thin answer by inventing something else.
+	 */
+	engine?: { configFile: string; embedderState(): EmbedderState };
 	/**
 	 * Where repeated mistakes are counted across sessions.
 	 *
@@ -148,7 +149,7 @@ export class MemoryController {
 		this.manifestPending = deps.settings.memory.manifest;
 		this.about = new AboutDesk({
 			settings: deps.settings,
-			...defined({ hasEnv: deps.hasEnv, paths: deps.paths }),
+			...defined({ paths: deps.paths, engine: deps.engine }),
 		});
 	}
 
@@ -384,15 +385,25 @@ export class MemoryController {
 		const sections: string[] = [];
 		let found = 0;
 		for (const [factScope, label, memory] of this.readableScopes(scope)) {
-			const recalled = await memory.recall({
-				query: input.question,
-				tokenBudget: this.deps.settings.memory.recallTokenBudget,
-				...defined({
-					tags: input.tags,
-					k: input.k,
-					graphDepth: input.graphDepth,
-				}),
-			});
+			let recalled: Awaited<ReturnType<typeof memory.recall>>;
+			try {
+				recalled = await memory.recall({
+					query: input.question,
+					tokenBudget: this.deps.settings.memory.recallTokenBudget,
+					...defined({
+						tags: input.tags,
+						k: input.k,
+						graphDepth: input.graphDepth,
+					}),
+				});
+			} catch (error) {
+				// The provider is down and this memory was told to fail rather
+				// than answer without vectors. Raw, that reaches the model as a
+				// tool error and it concludes the memory is broken; said in
+				// words, it is a temporary outage with a named fix.
+				if (!isEmbedderFailure(error)) throw error;
+				return EMBEDDER_UNREACHABLE;
+			}
 			// Two databases are answered as two labelled sections, never fused
 			// into one ranking. plugmem's own measurements put routing ahead of
 			// merging by a wide margin, and a merged list hides which memory an
@@ -546,11 +557,19 @@ export class MemoryController {
 
 		const suggestions = await this.tagSuggestions(memory, input.tags ?? []);
 		const entity = input.entity ?? this.defaultEntity(scope);
-		const stored = await memory.rememberGuarded({
-			text: input.text,
-			entity,
-			...defined({ tags: input.tags }),
-		});
+		let stored: Awaited<ReturnType<typeof memory.rememberGuarded>>;
+		try {
+			stored = await memory.rememberGuarded({
+				text: input.text,
+				entity,
+				...defined({ tags: input.tags }),
+			});
+		} catch (error) {
+			// Nothing was stored. Saying which is the whole point: a model told
+			// only "error" either drops the fact or writes it again five times.
+			if (!isEmbedderFailure(error)) throw error;
+			return `Not stored. ${EMBEDDER_UNREACHABLE}`;
+		}
 		this.noteWrote();
 
 		if (stored.status === "blocked") {
@@ -1107,6 +1126,22 @@ const BOTH_IS_A_READING_SCOPE =
 function isStandingRule(tags: readonly string[] | undefined): boolean {
 	return tags?.includes(INSTRUCTION_TAG) === true && tags.includes(ALWAYS_TAG);
 }
+
+/**
+ * Said when the embedding service is down and this memory refuses rather than
+ * carries on without it.
+ *
+ * It names the outage, the fact that nothing is damaged and the one-line
+ * setting that would have avoided it. The last part is for the USER, who is the
+ * only one who can change it, and the model is told to pass it on rather than
+ * act on it - there is nothing here it can fix by retrying.
+ */
+const EMBEDDER_UNREACHABLE =
+	"The embedding service is not answering, so this memory refused the call rather than " +
+	"work without meaning-based search. Nothing is damaged and nothing was lost. Do not " +
+	"retry it this turn - carry on with what you know, and tell the user their embedding " +
+	'service looks down, and that setting on_error = "degrade" in plugmem\'s config.toml ' +
+	"would let the memory keep working through an outage like this.";
 
 const MISMATCHED_PROJECT = (name: string): string =>
 	`Project "${name}" was last written with a different embedding model, and its ` +

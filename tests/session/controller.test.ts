@@ -377,3 +377,66 @@ describe("MemoryController.askProject", () => {
 		);
 	});
 });
+
+describe("an embedding service that is not answering", () => {
+	/** The project memory, as a value rather than an optional one. */
+	function projectMemory(): {
+		controller: MemoryController;
+		memory: FakeMemory;
+	} {
+		const { controller, project } = build();
+		if (project === undefined) throw new Error("the fixture opens a project");
+		return { controller, memory: project };
+	}
+
+	/** What plugmem throws under `on_error = "fail"`. */
+	function embedderDown(): Error {
+		return Object.assign(
+			new Error(
+				"embedder: error sending request for url (http://localhost:11434)",
+			),
+			{ code: "PLUGMEM_ENGINE" },
+		);
+	}
+
+	it("explains a failed lookup instead of handing over the engine's error", async () => {
+		// Raw, "PLUGMEM_ENGINE: embedder: error sending request" reaches the
+		// model as a tool error and it concludes the memory itself is broken.
+		const { controller, memory } = projectMemory();
+		memory.failEveryRecall = embedderDown();
+		const answer = await controller.ask({ question: "why is the cache off" });
+		expect(answer).toMatch(/embedding service is not answering/i);
+		expect(answer).toMatch(/nothing is damaged/i);
+		expect(answer).not.toContain("PLUGMEM_ENGINE");
+	});
+
+	it("tells the model to stop retrying and to pass the setting on", async () => {
+		// There is nothing here it can fix by calling again, and the one thing
+		// that would have avoided it belongs to the person, not the model.
+		const { controller, memory } = projectMemory();
+		memory.failEveryRecall = embedderDown();
+		const answer = await controller.ask({ question: "anything" });
+		expect(answer).toMatch(/do not retry/i);
+		expect(answer).toContain('on_error = "degrade"');
+	});
+
+	it("says plainly that nothing was stored", async () => {
+		const { controller, memory } = projectMemory();
+		memory.failNextWrite = embedderDown();
+		const answer = await controller.remember({ text: "a durable fact" });
+		expect(answer).toMatch(/^not stored/i);
+		expect(answer).toMatch(/embedding service is not answering/i);
+	});
+
+	it("still lets every other failure through", async () => {
+		// Only the embedder is turned into prose. A locked database, a full
+		// disk or a bug must not be answered with a sentence about outages.
+		const { controller, memory } = projectMemory();
+		memory.failEveryRecall = Object.assign(new Error("disk on fire"), {
+			code: "PLUGMEM_ENGINE",
+		});
+		await expect(controller.ask({ question: "anything" })).rejects.toThrow(
+			/disk on fire/,
+		);
+	});
+});

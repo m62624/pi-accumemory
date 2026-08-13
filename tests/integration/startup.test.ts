@@ -21,6 +21,10 @@ import { type StartedSession, startSession } from "../../src/startup.ts";
 import { PlugmemStore } from "../../src/storage/plugmem-store.ts";
 import { reembedSummary } from "../../src/ui/reembed-progress.ts";
 import {
+	writeConfigWithoutEmbedder,
+	writeEmbedderConfig,
+} from "../helpers/plugmem-config.ts";
+import {
 	type StubEmbedder,
 	startStubEmbedder,
 } from "../helpers/stub-embedder.ts";
@@ -208,9 +212,86 @@ describe("startSession", () => {
 		expect(answer).toMatch(/no project named "ghost"/i);
 	});
 
-	it("says the embedder is off, once", async () => {
+	it("says the embedder is off, once, and where to switch it on", async () => {
 		const session = await start(project);
-		expect(session.notices.join(" ")).toMatch(/embedder is off/i);
+		const notices = session.notices.join(" ");
+		expect(notices).toMatch(/embedder is off/i);
+		// The path, not "see SETTINGS.md": the file is per installation and it
+		// is the one plugmem actually reads.
+		expect(notices).toContain(extensionLayout(agentDir, path).configToml);
+		expect(session.embedderState()).toBe("absent");
+	});
+
+	it("keeps working when the embedding service is unreachable", async () => {
+		// `on_error = "degrade"`, end to end on the real engine: the session
+		// starts, the memory answers and stores, and the user is told once.
+		const layout = extensionLayout(agentDir, path);
+		await writeEmbedderConfig(layout.configToml, {
+			// Nothing listens here. Port 1 needs no privileges to fail on.
+			url: "http://127.0.0.1:1/v1/embeddings",
+			model: "stub",
+			dim: 32,
+		});
+		const session = await start(project);
+		await session.controller.remember({
+			text: "the release script signs the tarball",
+		});
+		expect(
+			await session.controller.ask({ question: "release script" }),
+		).toContain("tarball");
+		expect(session.embedderState()).toBe("suspended");
+	});
+
+	it("names the config file it opened", async () => {
+		const session = await start(project);
+		expect(session.configFile).toBe(extensionLayout(agentDir, path).configToml);
+	});
+
+	it("opens a config file from the path the settings name", async () => {
+		const elsewhere = path.join(root, "custom", "plug.toml");
+		const session = await start(
+			project,
+			settingsWith((draft) => {
+				draft.memory.plugmemConfig = elsewhere;
+			}),
+		);
+		expect(session.configFile).toBe(elsewhere);
+		// Written where they pointed, and said out loud - a path that holds no
+		// file is a typo far more often than a request for the defaults.
+		expect(await nodeFileOps.readFile(elsewhere)).toContain("[embedder]");
+		expect(session.notices.join(" ")).toContain(elsewhere);
+	});
+
+	it("leaves a config file that already exists alone", async () => {
+		const layout = extensionLayout(agentDir, path);
+		await writeConfigWithoutEmbedder(layout.configToml);
+		const before = await nodeFileOps.readFile(layout.configToml);
+		await start(project);
+		expect(await nodeFileOps.readFile(layout.configToml)).toBe(before);
+	});
+
+	it("moves an older installation's embedder settings into the file", async () => {
+		// The upgrade path: settings.json still describes an embedder, there is
+		// no config.toml yet, and the embedder must not silently switch off.
+		const service = await startStubEmbedder();
+		embedder = service;
+		const session = await start(
+			project,
+			settingsWith((draft) => {
+				draft.memory.embedder.enabled = true;
+				draft.memory.embedder.url = service.url;
+				draft.memory.embedder.model = "stub";
+				draft.memory.embedder.dim = service.dim;
+			}),
+		);
+		const written =
+			(await nodeFileOps.readFile(
+				extensionLayout(agentDir, path).configToml,
+			)) ?? "";
+		expect(written).toContain("enabled = true");
+		expect(written).toContain('on_error = "degrade"');
+		expect(session.notices.join(" ")).toMatch(/moved to/i);
+		expect(session.embedderState()).toBe("active");
 	});
 
 	it("still has a consolidation pass outside a project", async () => {

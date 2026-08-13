@@ -28,6 +28,7 @@ import { createIdleTrigger } from "./session/idle-trigger.ts";
 import { unfixableNotice } from "./session/stumbles.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
+import type { EmbedderState } from "./storage/port.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import { lazyController, MEMORY_UNAVAILABLE } from "./tools/lazy.ts";
 import {
@@ -223,6 +224,11 @@ export default function accumemory(pi: ExtensionAPI): void {
 				`Project: ${session.projectRoot ?? "(not a project directory)"}`,
 				`Project id: ${session.projectId ?? "-"}`,
 				`Memory: ${layout.memoryDir}`,
+				`Engine config: ${session.configFile}`,
+				// Asked now rather than remembered from startup: a provider that
+				// stopped answering mid-session is exactly what somebody runs
+				// this command to find out about.
+				`Embedder: ${embedderLine(session.embedderState())}`,
 				await session.controller.projects(),
 				...session.notices,
 			];
@@ -332,6 +338,18 @@ export default function accumemory(pi: ExtensionAPI): void {
 function describe(error: unknown): string {
 	if (error instanceof Error) return error.message;
 	return String(error);
+}
+
+/** The embedder's state, said in terms of what the memory can do. */
+function embedderLine(state: EmbedderState): string {
+	switch (state) {
+		case "absent":
+			return "none - answers match wording, not meaning";
+		case "active":
+			return "answering";
+		case "suspended":
+			return "not answering right now, so new facts are stored without vectors; it retries by itself, and /longterm-reembed fills them in";
+	}
 }
 
 /** Re-exported so a consumer can drive the pieces without the extension shell. */

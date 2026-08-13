@@ -80,14 +80,38 @@ describe("parseSettings", () => {
 		expect(() => parseSettings("nope")).toThrow(/object/i);
 	});
 
-	it("keeps the embedder off by default but carries a multilingual model name", () => {
-		// The default is off because a machine without Ollama must still work;
-		// the recommendation lives in SETTINGS.md. The model name is prefilled
-		// so switching it on is one boolean, not a research task — and it is a
-		// multilingual one, because this memory holds Russian and English.
+	it("keeps the legacy embedder off by default, with a multilingual model", () => {
+		// These keys no longer configure anything - plugmem's config.toml does -
+		// but they are still what an upgrade writes into that file the first
+		// time, so the defaults still have to be the ones worth writing.
 		expect(DEFAULT_SETTINGS.memory.embedder.enabled).toBe(false);
 		expect(DEFAULT_SETTINGS.memory.embedder.model).toBe("bge-m3");
 		expect(DEFAULT_SETTINGS.memory.embedder.dim).toBeGreaterThan(0);
+	});
+
+	it("carries autoReembed out of the embedder section it used to live in", () => {
+		// A rename across two levels: dropping it would silently return the
+		// setting to its default, and the user would find out by watching a
+		// rebuild they had switched off.
+		const { settings, warnings } = parseSettings({
+			memory: { embedder: { autoReembed: false } },
+		});
+		expect(settings.memory.autoReembed).toBe(false);
+		expect(warnings.join(" ")).toContain("memory.autoReembed");
+	});
+
+	it("still checks the type of a value arriving under an old name", () => {
+		expect(() =>
+			parseSettings({ memory: { embedder: { autoReembed: "no" } } }),
+		).toThrow(/boolean/i);
+	});
+
+	it("takes the engine config path, and takes null for the default place", () => {
+		expect(
+			parseSettings({ memory: { plugmemConfig: "~/plug.toml" } }).settings
+				.memory.plugmemConfig,
+		).toBe("~/plug.toml");
+		expect(DEFAULT_SETTINGS.memory.plugmemConfig).toBeNull();
 	});
 
 	it("accepts a full document identical to the defaults", () => {

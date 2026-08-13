@@ -28,19 +28,12 @@ day it does not.
 		"graphDepth": null,
 		"manifest": true,
 		"queryMaxChars": 600,
+		"plugmemConfig": null,
+		"autoReembed": true,
 		"refresh": {
 			"afterToolCalls": 10,
 			"onCompact": true,
 			"askHintAfterIdleInferences": 2
-		},
-		"embedder": {
-			"enabled": false,
-			"url": "http://localhost:11434/v1/embeddings",
-			"model": "bge-m3",
-			"apiKeyEnv": null,
-			"spaceId": null,
-			"autoReembed": true,
-			"dim": 1024
 		},
 		"instructions": {
 			"alwaysMax": 8,
@@ -303,7 +296,39 @@ in api?" — by name. The other project's database is opened read-only, which
 takes a shared lock, so the question is safe to ask while somebody is working in
 that project.
 
-## The embedder — `memory.embedder.*`
+## The engine — `memory.plugmemConfig`
+
+Everything about the storage engine — the embedder, retrieval weights,
+maintenance — is configured in **plugmem's own `config.toml`**, not here. This
+setting says only where that file is:
+
+```
+<agentDir>/extensions/pi-accumemory/memory/config.toml
+```
+
+`null` (the default) means exactly that path. A relative path is read from the
+extension's own directory, not from wherever you happened to start Pi; a leading
+`~` is your home directory.
+
+The file is **yours**. The extension writes it once, when it is not there, and
+never edits it again — so:
+
+- delete it to get the defaults back on the next start;
+- if the path you named holds no file, one is written **there** and you are told
+  so, because a path pointing at nothing is a typo far more often than a request;
+- what it contains is plugmem's business. It validates the file, reports what it
+  did not understand, and documents every key it takes in its own
+  `config.example.toml` and `SETTINGS.md`.
+
+Two sections of that file do nothing here: `[database]` and `[workspace]`. Every
+memory is opened by an explicit path — one database per project, plus the shared
+one — so nothing in the file decides where they live.
+
+> **Upgrading?** If your `settings.json` still has a `memory.embedder` section,
+> it is written into `config.toml` once, on the next start, and you are told
+> where it went. After that the section does nothing and can be deleted.
+
+## The embedder — in `config.toml`
 
 **Off by default, and recommended on.** Off, memory answers only when the
 question happens to share words with the stored fact: there is no stemming, so a
@@ -316,25 +341,39 @@ Recommended setup, with [Ollama](https://ollama.com) running locally:
 ollama pull bge-m3
 ```
 
-```json
-{
-	"memory": {
-		"embedder": {
-			"enabled": true,
-			"url": "http://localhost:11434/v1/embeddings",
-			"model": "bge-m3",
-			"dim": 1024
-		}
-	}
-}
+```toml
+[engine]
+dim = 1024
+
+[embedder]
+enabled = true
+url = "http://localhost:11434/v1/embeddings"
+model = "bge-m3"
+on_error = "degrade"
 ```
 
 Pick a **multilingual** model if you work in more than one language — one memory
 holds them all, and an English-only model (`nomic-embed-text`) answers poorly on
 anything else. `multilingual-e5-small` is a lighter alternative to `bge-m3`.
 
-`apiKeyEnv` is the **name of an environment variable** holding a bearer token,
-never the token itself. Nothing in this extension ever stores a credential.
+`api_key_env` is the **name of an environment variable** holding a bearer token,
+never the token itself. Nothing in this extension ever stores a credential — it
+does not even read that file.
+
+### When the embedding service is down — `on_error`
+
+`degrade` (what the generated file sets) keeps the memory working through an
+outage: the fact is stored and the question is answered **without** the vector,
+and the embedder suspends itself so the next call does not pay the same timeout
+again. It retries by itself, and the facts written meanwhile get their vectors at
+the next start, or from `/longterm-reembed`.
+
+`fail` refuses the call instead. Nothing is damaged and nothing is lost — but the
+model is told the memory would not answer, and it is told to pass that on to you
+rather than retry.
+
+`/longterm-status` says which of the three states the embedder is in right now:
+none configured, answering, or not answering.
 
 ### Changing the model: handled for you
 
@@ -350,7 +389,8 @@ them. What that looks like, measured against the engine:
 Nothing is lost and nothing is silently wrong — but the two things this
 extension is built on stop, and you would only find out at the first lookup.
 
-So `autoReembed` is **on by default** and the extension repairs this itself:
+So `memory.autoReembed` is **on by default** and the extension repairs this
+itself:
 
 - at session start it checks the shared memory and this project's, and rebuilds
   whichever is out of step before anything asks a question;
@@ -362,7 +402,7 @@ So `autoReembed` is **on by default** and the extension repairs this itself:
   meaning-based recall would answer from a fraction of the memory and say
   nothing about it.
 
-Set `autoReembed: false` to be told instead of repaired; the rebuild is then one
+Set `memory.autoReembed: false` to be told instead of repaired; the rebuild is then one
 `/longterm-reembed` away. That command always walks **every** memory in the
 workspace — a half-rebuilt workspace answers from two different vector spaces
 with nothing reporting it.
@@ -370,9 +410,9 @@ with nothing reporting it.
 A rebuild is resumable: each fact is replaced in place, so an interrupted one
 keeps what it finished and running it again completes the job.
 
-### `spaceId`
+### `space_id`
 
-`null` (the default) lets plugmem derive the space from the model name — so
+Left out (the default) plugmem derives the space from the model name — so
 changing the model changes the space, which is what you want. Pin it to a name
 of your own only when you are swapping endpoints or aliases for the **same**
 model and do not want a rebuild.

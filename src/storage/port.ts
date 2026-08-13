@@ -192,6 +192,24 @@ export interface ScanFilter {
 }
 
 /** Read verbs. A read-only handle offers exactly these. */
+/**
+ * What the engine says about the embedder right now, which is not the same
+ * question as what was configured.
+ *
+ * Not part of {@link ReadableMemory}: it is a property of a plugmem handle, not
+ * of "a memory", and the fakes and wrappers above this layer have no embedder
+ * to have a state. `PlugmemStore` and `PlugmemReader` answer it.
+ *
+ * - `absent` - none configured, so nothing has vectors and meaning-based
+ *   recall is off.
+ * - `active` - configured and being called.
+ * - `suspended` - configured, but the provider could not be reached and the
+ *   policy is `degrade`, so writes and reads go on WITHOUT vectors until it
+ *   answers again. The facts stored meanwhile have no vectors, which is the
+ *   same repairable state as switching an embedder on over an old database.
+ */
+export type EmbedderState = "absent" | "active" | "suspended";
+
 export interface ReadableMemory {
 	recall(input: RecallInput): Promise<RecallResult>;
 	/**

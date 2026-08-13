@@ -47,8 +47,8 @@ pi package add pi-accumemory
 ```
 
 It works immediately with no configuration. For the memory to answer questions
-phrased differently from how a fact was written, switch on an embedder — see
-[SETTINGS.md](SETTINGS.md#the-embedder--memoryembedder).
+phrased differently from how a fact was written, switch on an embedder in the
+engine's `config.toml` — see [SETTINGS.md](SETTINGS.md#the-embedder--in-configtoml).
 
 ## Tools
 

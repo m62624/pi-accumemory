@@ -25,7 +25,13 @@ export interface ExtensionLayout {
 	root: string;
 	/** The plugmem workspace root; `db/` and `registry.plugmem` appear inside. */
 	memoryDir: string;
-	/** Generated from settings; one per workspace because `dim` is per workspace. */
+	/**
+	 * plugmem's own configuration, where it lives unless the settings move it.
+	 *
+	 * Written once if it is not there and never edited afterwards - it is the
+	 * user's file. One per workspace, so every database here opens with the same
+	 * embedder and the same width.
+	 */
 	configToml: string;
 	notesDir: string;
 	commonNotesDir: string;

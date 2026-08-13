@@ -17,6 +17,7 @@ import {
 	type Reembeddable,
 	syncVectorSpace,
 } from "../../src/storage/embedder-sync.ts";
+import type { EmbedderState } from "../../src/storage/port.ts";
 
 function mismatchError(): Error {
 	return Object.assign(
@@ -32,9 +33,14 @@ function store(options: {
 	facts?: number;
 	vectors?: number;
 	reembedError?: Error;
+	/** What the engine says about the embedder; `active` unless a test says otherwise. */
+	state?: EmbedderState;
+	/** The state AFTER the probe, which is how a degrade suspension shows up. */
+	stateAfterProbe?: EmbedderState;
 }): Reembeddable & { reembeds: number; checkpoints: number } {
 	let reembeds = 0;
 	let checkpoints = 0;
+	let probed = false;
 	let recallError = options.recallError;
 	return {
 		get reembeds() {
@@ -44,9 +50,14 @@ function store(options: {
 			return checkpoints;
 		},
 		recall: async () => {
+			probed = true;
 			if (recallError !== undefined) throw recallError;
 			return {};
 		},
+		embedderState: () =>
+			(probed ? options.stateAfterProbe : undefined) ??
+			options.state ??
+			"active",
 		stats: async () => ({
 			facts: options.facts ?? 0,
 			entities: 0,
@@ -68,9 +79,14 @@ function store(options: {
 
 describe("syncVectorSpace", () => {
 	it("does nothing at all when there is no embedder", async () => {
-		const target = store({ recallError: mismatchError(), facts: 10 });
+		// Asked of the engine, not of our settings: the answer lives in the
+		// config file plugmem read, which this extension does not parse.
+		const target = store({
+			recallError: mismatchError(),
+			facts: 10,
+			state: "absent",
+		});
 		const result = await syncVectorSpace(target, {
-			embedderEnabled: false,
 			label: "this project",
 		});
 		expect(result.action).toBe("none");
@@ -79,10 +95,7 @@ describe("syncVectorSpace", () => {
 
 	it("does nothing when the vectors already agree", async () => {
 		const target = store({ facts: 10, vectors: 10 });
-		expect(
-			(await syncVectorSpace(target, { embedderEnabled: true, label: "x" }))
-				.action,
-		).toBe("none");
+		expect((await syncVectorSpace(target, { label: "x" })).action).toBe("none");
 		expect(target.reembeds).toBe(0);
 	});
 
@@ -94,7 +107,6 @@ describe("syncVectorSpace", () => {
 			vectors: 42,
 		});
 		const result = await syncVectorSpace(target, {
-			embedderEnabled: true,
 			label: "this project",
 		});
 		expect(result.action).toBe("space-changed");
@@ -109,7 +121,6 @@ describe("syncVectorSpace", () => {
 		// memory and reports nothing.
 		const target = store({ facts: 10, vectors: 3 });
 		const result = await syncVectorSpace(target, {
-			embedderEnabled: true,
 			label: "x",
 		});
 		expect(result.action).toBe("backfilled");
@@ -118,10 +129,7 @@ describe("syncVectorSpace", () => {
 
 	it("leaves an empty memory alone", async () => {
 		const target = store({ facts: 0, vectors: 0 });
-		expect(
-			(await syncVectorSpace(target, { embedderEnabled: true, label: "x" }))
-				.action,
-		).toBe("none");
+		expect((await syncVectorSpace(target, { label: "x" })).action).toBe("none");
 		expect(target.reembeds).toBe(0);
 	});
 
@@ -132,7 +140,6 @@ describe("syncVectorSpace", () => {
 			vectors: 5,
 		});
 		const result = await syncVectorSpace(target, {
-			embedderEnabled: true,
 			autoReembed: false,
 			label: "this project",
 		});
@@ -144,7 +151,6 @@ describe("syncVectorSpace", () => {
 	it("reports missing vectors without rebuilding when told not to", async () => {
 		const target = store({ facts: 10, vectors: 4 });
 		const result = await syncVectorSpace(target, {
-			embedderEnabled: true,
 			autoReembed: false,
 			label: "x",
 		});
@@ -162,7 +168,6 @@ describe("syncVectorSpace", () => {
 			reembedError: new Error("the embedding service is unreachable"),
 		});
 		const result = await syncVectorSpace(target, {
-			embedderEnabled: true,
 			label: "x",
 		});
 		expect(result.action).toBe("failed");
@@ -181,10 +186,39 @@ describe("syncVectorSpace", () => {
 			vectors: 0,
 		});
 		const result = await syncVectorSpace(target, {
-			embedderEnabled: true,
 			label: "x",
 		});
 		expect(result.action).toBe("none");
+		expect(target.reembeds).toBe(0);
+	});
+
+	it("reports an unreachable provider instead of trying to rebuild", async () => {
+		// `degrade` answers the probe without a vector and suspends the
+		// embedder, and a reembed refuses while it is suspended - so the only
+		// correct move is to say so and leave the vectors alone.
+		const target = store({
+			facts: 10,
+			vectors: 3,
+			stateAfterProbe: "suspended",
+		});
+		const result = await syncVectorSpace(target, { label: "this project" });
+		expect(result.action).toBe("suspended");
+		expect(target.reembeds).toBe(0);
+		expect(result.notice).toMatch(/not answering/i);
+		expect(result.notice).toContain("/longterm-reembed");
+	});
+
+	it("does not mistake a suspension for a changed model", async () => {
+		// Both end in "meaning-based search is not working", and the repairs are
+		// opposite: one rebuilds every vector, the other must not touch them.
+		const target = store({
+			recallError: mismatchError(),
+			facts: 5,
+			vectors: 5,
+			stateAfterProbe: "suspended",
+		});
+		const result = await syncVectorSpace(target, { label: "x" });
+		expect(result.action).toBe("suspended");
 		expect(target.reembeds).toBe(0);
 	});
 
@@ -202,9 +236,12 @@ describe("syncVectorSpace", () => {
 			checkpoint: async () => {
 				throw new Error("checkpoint exploded");
 			},
+			embedderState: () => {
+				throw new Error("embedderState exploded");
+			},
 		};
 		await expect(
-			syncVectorSpace(hostile, { embedderEnabled: true, label: "x" }),
+			syncVectorSpace(hostile, { label: "x" }),
 		).resolves.toBeDefined();
 	});
 });

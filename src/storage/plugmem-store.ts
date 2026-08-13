@@ -16,6 +16,7 @@ import { defined } from "../tools/args.ts";
 import { needsCheckpoint } from "./errors.ts";
 import type {
 	EdgeRef,
+	EmbedderState,
 	FactCard,
 	GuardedRememberResult,
 	MemoryStats,
@@ -32,9 +33,13 @@ import type {
 } from "./port.ts";
 
 export interface OpenOptions {
-	/** Embedding width; written into the file at creation. */
-	dim?: number;
-	/** Path to the generated `config.toml`. */
+	/**
+	 * Path to the user's `config.toml`.
+	 *
+	 * The only thing passed: `dim` is stated in that file, and the addon calls
+	 * the file authoritative when both are given. Passing a second copy from
+	 * here could only ever disagree with it.
+	 */
 	config?: string;
 }
 
@@ -123,6 +128,18 @@ export class PlugmemStore implements WritableMemory {
 		};
 	}
 
+	/**
+	 * Whether this handle has an embedder, and whether it is answering.
+	 *
+	 * Synchronous, unlike almost everything else here, because the addon's own
+	 * verb is: it reads one slot and returns. Wrapping it in a promise would
+	 * have bought nothing and cost the sync callers - `longterm_about`'s
+	 * settings page among them - the ability to ask at all.
+	 */
+	embedderState(): EmbedderState {
+		return this.db.embedderState();
+	}
+
 	async checkpoint(): Promise<void> {
 		await this.db.checkpoint();
 	}
@@ -208,6 +225,17 @@ export class PlugmemReader implements ReadableMemory {
 		};
 	}
 
+	/**
+	 * This handle's own embedder, which is a real distinction.
+	 *
+	 * A read-only handle embeds its queries itself rather than through the
+	 * writer, so it has its own view of whether the provider is answering: the
+	 * writer can be suspended while this one is fine, and the other way round.
+	 */
+	embedderState(): EmbedderState {
+		return this.db.embedderState();
+	}
+
 	/** Adopts the writer's latest published checkpoint. */
 	refresh(): boolean {
 		return this.db.refresh();
@@ -249,11 +277,8 @@ export async function openReadable(
 	}
 }
 
-function toOpenOptions(options: OpenOptions): {
-	dim?: number;
-	config?: string;
-} {
-	return defined({ dim: options.dim, config: options.config });
+function toOpenOptions(options: OpenOptions): { config?: string } {
+	return defined({ config: options.config });
 }
 
 function toRememberArgs(input: RememberInput) {

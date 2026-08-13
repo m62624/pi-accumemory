@@ -24,15 +24,16 @@
  *   after that the refusal names the way out, because a bare "no" invites the
  *   same call again.
  *
- * The one branch enforced in code rather than in prose is the API key.
- * `current_settings` prints the NAME of the environment variable and whether it
- * is set, and there is no path through this file that can reach the value. A
- * prompt telling a model not to print a secret is a request; a function that
- * never holds one is a guarantee.
+ * The API key used to need a rule here: `current_settings` printed the NAME of
+ * the environment variable holding it, and nothing else. It needs none now, and
+ * for the stronger reason - the key variable is named in plugmem's own
+ * `config.toml`, which this extension neither parses nor reads. There is no
+ * path from this file to a credential because there is no credential in reach.
  */
 
 import { ABOUT_PAGES } from "../about/pages.ts";
 import type { Settings } from "../settings/defaults.ts";
+import type { EmbedderState } from "../storage/port.ts";
 
 /** Every topic a caller may ask for, in the order the description lists them. */
 export const ABOUT_TOPICS = [
@@ -65,13 +66,6 @@ export const ABOUT_BUDGET_SPENT =
 export interface AboutDeps {
 	settings: Settings;
 	/**
-	 * Whether an environment variable holds anything, WITHOUT reading it.
-	 *
-	 * Injected so tests need no real environment, and typed as a boolean so no
-	 * caller can hand a value back into a page by accident.
-	 */
-	hasEnv?: (name: string) => boolean;
-	/**
 	 * Where the settings actually live on THIS machine, and where the databases
 	 * are - both resolved by the same code that opened them.
 	 *
@@ -85,6 +79,15 @@ export interface AboutDeps {
 	 * neither is guessed.
 	 */
 	paths?: { settingsFile: string; memoryDir: string };
+	/**
+	 * plugmem's own configuration, as the engine has it right now.
+	 *
+	 * `settings.json` no longer describes the embedder - `config.toml` does,
+	 * and only plugmem reads it. So the page reports what the ENGINE says
+	 * rather than what our settings would have implied, which also happens to
+	 * be the only way to see a provider that has stopped answering mid-session.
+	 */
+	engine?: { configFile: string; embedderState(): EmbedderState };
 }
 
 /**
@@ -117,14 +120,15 @@ export class AboutDesk {
 	/**
 	 * The live configuration, rendered.
 	 *
-	 * Only the settings that change how the memory behaves. The point is to
-	 * answer "why did it do that" - a model that can see `embedder.enabled` is
-	 * false can explain why a differently-worded question found nothing, instead
-	 * of guessing that the fact was never stored.
+	 * Only the settings that change how the memory behaves, plus the one
+	 * thing that is not a setting at all: whether the embedder is answering
+	 * right now. The point is to answer "why did it do that" - a model that can
+	 * see there are no vectors explains a differently-worded question finding
+	 * nothing, instead of guessing that the fact was never stored.
 	 */
 	private currentSettings(): string {
 		const { memory, timezone } = this.deps.settings;
-		const { embedder, consolidation, refresh, nudge } = memory;
+		const { consolidation, refresh, nudge } = memory;
 		const { paths } = this.deps;
 		const lines = [
 			"# What this session is running with",
@@ -135,6 +139,7 @@ export class AboutDesk {
 			"## Where it lives",
 			`- settings file: ${paths?.settingsFile ?? "not known in this session"}`,
 			`- databases: ${paths?.memoryDir ?? "not known in this session"}`,
+			`- plugmemConfig: ${memory.plugmemConfig ?? "unset, so the engine's config.toml sits beside the databases"}`,
 			"",
 			"Those are the real paths on this machine, resolved by the code that opened",
 			"them - not a guess and not a convention. If the settings file is not there,",
@@ -155,17 +160,8 @@ export class AboutDesk {
 			`- timezone: ${timezone ?? "the machine's own"}`,
 			"",
 			"## Semantic search",
-			`- embedder.enabled: ${embedder.enabled}${
-				embedder.enabled
-					? ""
-					: " - WITHOUT VECTORS a question worded differently from the stored fact will not find it"
-			}`,
-			`- embedder.url: ${embedder.url}`,
-			`- embedder.model: ${embedder.model}`,
-			`- embedder.dim: ${embedder.dim}`,
-			`- embedder.spaceId: ${embedder.spaceId ?? "the model name"}`,
-			`- embedder.autoReembed: ${embedder.autoReembed}`,
-			`- embedder.apiKeyEnv: ${this.keyLine(embedder.apiKeyEnv)}`,
+			...this.embedderLines(),
+			`- autoReembed: ${memory.autoReembed} - whether stored vectors are rebuilt automatically when they stop matching`,
 			"",
 			"## When the block is rebuilt",
 			`- refresh.afterToolCalls: ${refresh.afterToolCalls}`,
@@ -195,18 +191,41 @@ export class AboutDesk {
 	}
 
 	/**
-	 * The key setting, as the only thing about a key that may ever be printed.
+	 * The embedder, from the engine rather than from settings.
 	 *
-	 * The variable's NAME and whether it holds anything. Whether it is set is
-	 * the diagnostic half - "the endpoint is configured and the variable is
-	 * empty" is a real answer, and it needs no part of the value.
+	 * There is nothing here to print out of `settings.json` any more: the
+	 * endpoint, the model, the width and the key variable live in plugmem's
+	 * `config.toml`, which this extension does not parse. What it can say is
+	 * the part that decides how a search behaves - whether vectors are being
+	 * produced at all right now - and where to go to change it.
 	 */
-	private keyLine(name: string | null): string {
-		if (name === null) return "not configured (no key is sent)";
-		const set = this.deps.hasEnv?.(name) ?? false;
-		return `the ${name} environment variable, which is currently ${
-			set ? "set" : "EMPTY"
-		}. Its value is never read into a prompt, printed, or stored.`;
+	private embedderLines(): string[] {
+		const engine = this.deps.engine;
+		if (engine === undefined) {
+			return [
+				"- embedder: not known in this session (the engine was not asked)",
+			];
+		}
+		const where = `- configured in: ${engine.configFile} (plugmem's own file; this extension does not read it)`;
+		switch (engine.embedderState()) {
+			case "absent":
+				return [
+					"- embedder: NONE. Recall matches WORDING only, so a question phrased differently",
+					"  from the stored fact will not find it. Say that when a search comes back thin;",
+					"  do not conclude the fact was never stored.",
+					where,
+				];
+			case "active":
+				return ["- embedder: answering, so recall matches meaning too", where];
+			case "suspended":
+				return [
+					"- embedder: NOT ANSWERING right now. Facts are still stored and still found by",
+					"  wording, but the ones written meanwhile have no vectors yet, and meaning-based",
+					"  ranking is off until the provider is back. It retries by itself; the user can",
+					"  run /longterm-reembed afterwards to fill in what was missed.",
+					where,
+				];
+		}
 	}
 }
 

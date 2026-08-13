@@ -344,8 +344,10 @@ are shown is the correct one.
 Four signals, fused:
 
 - **text** - BM25, the words themselves
-- **vectors** - meaning, if the user configured an embedder. Without one, a
-  question phrased differently from the stored fact will not find it.
+- **vectors** - meaning, if the user configured an embedder. Without one - or
+  while an embedding service is down - a question phrased differently from the
+  stored fact will not find it. \`longterm_about\` with \`current_settings\`
+  says which of those is the case.
 - **graph** - facts about entities linked to the ones you hit
 - **time** - recent and currently-valid facts rank above closed ones
 
@@ -482,16 +484,15 @@ say a restart is needed. Never say "done" or "I have turned that off".
 - \`graphDepth\` - how far a search follows entity links.
 - \`manifest\` - a one-time summary of what the memory holds, at session start.
 
-**\`memory.embedder\`** - the semantic half of search.
-- \`enabled\` - off by default, so a machine with no embedding service still
-  works. Recommended on: without vectors, a question worded differently from the
-  stored fact never finds it.
-- \`url\`, \`model\`, \`dim\` - the endpoint, the model, the vector width.
-- \`apiKeyEnv\` - the NAME of an environment variable holding the key. Never the
-  key. The value is never read into any prompt, printed, or stored.
-- \`spaceId\` - which semantic space the stored vectors belong to.
-- \`autoReembed\` - rebuild the vectors when they stop matching the embedder,
-  instead of failing at the first lookup.
+**\`memory.plugmemConfig\`** - where the storage engine's own \`config.toml\`
+is. That file, not this one, configures the embedder (the endpoint, the model,
+the vector width, the name of the environment variable holding a key) and
+everything else the engine takes. This extension never reads it; plugmem does.
+Whether an embedder is answering RIGHT NOW is on the \`current_settings\` page,
+because it can change during a session.
+
+**\`memory.autoReembed\`** - rebuild the stored vectors when they stop matching
+the embedder, instead of failing at the first lookup.
 
 **\`memory.refresh\`** - when the block is recomputed: after N tool calls, after
 a compaction.

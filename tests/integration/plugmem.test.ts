@@ -150,7 +150,9 @@ describe("plugmem adapter, against the real engine", () => {
 	it("works with no embedder at all", async () => {
 		// Degrading to lexical, graph and time retrieval is a supported mode,
 		// not a broken one - a machine with no embedding service still works.
-		const store = track(await PlugmemStore.open(workspace.db("p"), { dim: 0 }));
+		// No config file at all: the engine then has no embedder, which is the
+		// same state a default installation starts in.
+		const store = track(await PlugmemStore.open(workspace.db("p")));
 		await store.remember({ text: "biome is the formatter here" });
 		expect(
 			(await store.recall({ query: "biome formatter" })).facts,

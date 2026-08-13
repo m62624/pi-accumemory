@@ -40,7 +40,8 @@ import {
 	CommonStore,
 	type LeasedWriter,
 } from "./storage/common-store.ts";
-import { buildPlugmemConfig, validateEmbedder } from "./storage/config-toml.ts";
+import { ensurePlugmemConfig } from "./storage/config-file.ts";
+import { embedderWasConfigured } from "./storage/config-toml.ts";
 import { syncVectorSpace } from "./storage/embedder-sync.ts";
 import { isLocked } from "./storage/errors.ts";
 import {
@@ -48,6 +49,7 @@ import {
 	PlugmemReader,
 	PlugmemStore,
 } from "./storage/plugmem-store.ts";
+import type { EmbedderState } from "./storage/port.ts";
 import { defined } from "./tools/args.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import type { ProgressStep } from "./ui/reembed-progress.ts";
@@ -120,6 +122,16 @@ export interface StartedSession {
 	}>;
 	/** Everything worth telling the user once, in plain sentences. */
 	notices: string[];
+	/** plugmem's config file, as it was actually resolved. */
+	configFile: string;
+	/**
+	 * The embedder as it stands right now.
+	 *
+	 * A function rather than a value: it starts `active` and becomes
+	 * `suspended` the moment a provider stops answering, so anything that
+	 * reports it to a person has to ask at the time of asking.
+	 */
+	embedderState(): EmbedderState;
 	close(): void;
 }
 
@@ -130,16 +142,22 @@ export async function startSession(
 	const notices: string[] = [];
 	const closers: (() => void)[] = [];
 
-	validateEmbedder(settings.memory.embedder);
 	await fs.mkdir(layout.memoryDir);
-	await fs.writeFile(
-		layout.configToml,
-		buildPlugmemConfig(settings.memory.embedder),
-	);
-	const openOptions = {
-		dim: settings.memory.embedder.dim,
-		config: layout.configToml,
-	};
+	// plugmem's own file, and the user's. We put one there when there is none -
+	// carrying over the old `memory.embedder` settings if this installation
+	// still has them - and never touch it again.
+	const legacy = settings.memory.embedder;
+	const configFile = await ensurePlugmemConfig({
+		fs,
+		flavour: pathModule,
+		root: layout.root,
+		defaultPath: layout.configToml,
+		configured: settings.memory.plugmemConfig,
+		...defined({ home: options.home }),
+		...(embedderWasConfigured(legacy) ? { legacy } : {}),
+	});
+	if (configFile.notice !== "") notices.push(configFile.notice);
+	const openOptions = { config: configFile.path };
 	const dbPath = (name: string) =>
 		pathModule.join(layout.memoryDir, "db", `${name}.plugmem`);
 	await fs.mkdir(pathModule.join(layout.memoryDir, "db"));
@@ -157,11 +175,14 @@ export async function startSession(
 	// anything asks the memory a question. A changed model makes every text
 	// lookup and every text write fail, and without this the first the user
 	// hears of it is a failed tool call in the middle of their work.
-	const syncOptions = {
-		embedderEnabled: settings.memory.embedder.enabled,
-		autoReembed: settings.memory.embedder.autoReembed,
-	};
-	if (syncOptions.embedderEnabled) {
+	//
+	// Whether there is an embedder at all is the engine's answer, not ours: it
+	// read the config file, and it is the one that would have refused a broken
+	// `[embedder]` section. A read-only handle has its own, so this is also the
+	// handle that will answer this session's questions.
+	const embedderPresent = commonReader.embedderState() !== "absent";
+	const syncOptions = { autoReembed: settings.memory.autoReembed };
+	if (embedderPresent) {
 		await common.withWriteLease(async (writer) => {
 			const result = await syncVectorSpace(writer as unknown as PlugmemStore, {
 				...syncOptions,
@@ -197,7 +218,7 @@ export async function startSession(
 			// which is precisely what a cross-project question does.
 			project = new CheckpointingStore(projectWriter);
 			await projectWriter.checkpoint();
-			if (syncOptions.embedderEnabled) {
+			if (embedderPresent) {
 				const result = await syncVectorSpace(projectWriter, {
 					...syncOptions,
 					label: "this project's memory",
@@ -221,10 +242,10 @@ export async function startSession(
 		);
 	}
 
-	if (!settings.memory.embedder.enabled) {
+	if (!embedderPresent) {
 		notices.push(
 			"The embedder is off, so memory answers only match wording that overlaps what " +
-				"was stored. See SETTINGS.md to switch it on.",
+				`was stored. Switch it on in ${configFile.path}.`,
 		);
 	}
 
@@ -291,15 +312,17 @@ export async function startSession(
 					}),
 				}),
 		router,
-		// Whether the key variable holds anything - never what. Read here, at
-		// the one place that already touches the process, so nothing below can
-		// reach an environment at all.
-		hasEnv: (name: string) => (process.env[name] ?? "") !== "",
 		// Resolved here, where they were computed, so the model never describes
 		// a path it worked out from a convention.
 		paths: {
 			settingsFile: layout.settingsFile,
 			memoryDir: layout.memoryDir,
+		},
+		// The engine's own view, for the same reason: what the embedder is
+		// doing right now is not derivable from anything this extension holds.
+		engine: {
+			configFile: configFile.path,
+			embedderState: () => (projectWriter ?? commonReader).embedderState(),
 		},
 		stumbles,
 		// Another project's memory, read-only. A shared lock coexists with the
@@ -317,7 +340,7 @@ export async function startSession(
 		// them. This takes the writer lock for exactly as long as the repair,
 		// and reports plainly when somebody else is holding it.
 		repairProject: async (id: string) => {
-			if (!settings.memory.embedder.enabled) {
+			if (!embedderPresent) {
 				return "there is no embedder configured to rebuild its vectors with";
 			}
 			let writer: PlugmemStore;
@@ -333,11 +356,15 @@ export async function startSession(
 			}
 			try {
 				const result = await syncVectorSpace(writer, {
-					embedderEnabled: true,
 					autoReembed: true,
 					label: "it",
 				});
-				return result.action === "failed" ? result.notice : undefined;
+				// "suspended" is reported like a failure on purpose: the caller
+				// asked for a repair and did not get one, and the reason - a
+				// provider that is not answering - is the user's to act on.
+				return result.action === "failed" || result.action === "suspended"
+					? result.notice
+					: undefined;
 			} finally {
 				writer.close();
 			}
@@ -415,12 +442,12 @@ export async function startSession(
 			// Recomputing vectors needs a provider to compute them with. Saying
 			// so beats the engine's own error, which arrives after the command
 			// has already announced that it started.
-			if (!settings.memory.embedder.enabled) {
+			if (!embedderPresent) {
 				return {
 					steps: [],
 					blocked:
 						"There is no embedder configured, so there are no vectors to rebuild. " +
-						"See SETTINGS.md to switch one on, then run this again.",
+						`Switch one on in ${configFile.path}, then run this again.`,
 				};
 			}
 			// Every database in the workspace, because a partial reembed leaves
@@ -490,6 +517,11 @@ export async function startSession(
 		...(projectId === undefined ? {} : { projectId }),
 		...(projectRoot === undefined ? {} : { projectRoot }),
 		notices,
+		configFile: configFile.path,
+		// Through the writer when this session has one: it is the handle that
+		// embeds what gets stored, so it is the one whose suspension changes
+		// what the memory can do. The reader answers when there is no writer.
+		embedderState: () => (projectWriter ?? commonReader).embedderState(),
 		close: () => {
 			for (const closer of closers.reverse()) {
 				try {

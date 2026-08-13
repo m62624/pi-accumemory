@@ -24,7 +24,7 @@ import {
 function desk(overrides: Partial<typeof DEFAULT_SETTINGS.memory> = {}) {
 	const settings = structuredClone(DEFAULT_SETTINGS);
 	Object.assign(settings.memory, overrides);
-	return new AboutDesk({ settings, hasEnv: (name) => name === "SET_ONE" });
+	return new AboutDesk({ settings });
 }
 
 /** Every dotted key under an object, leaves only: `embedder.dim`, and so on. */
@@ -150,6 +150,11 @@ describe("current_settings", () => {
 		// who would tell the user about it.
 		const page = readAbout(desk(), "current_settings");
 		for (const leaf of leafKeys(DEFAULT_SETTINGS.memory)) {
+			// `embedder.*` is the exception, and deliberately: those keys are
+			// only read once, to move an older installation's settings into
+			// plugmem's config.toml. Printing them would tell the model about a
+			// configuration nothing consults.
+			if (leaf.startsWith("embedder.")) continue;
 			expect(page, `${leaf} is missing from current_settings`).toContain(leaf);
 		}
 	});
@@ -183,55 +188,80 @@ describe("current_settings", () => {
 		expect(ABOUT_PAGES.settings).not.toMatch(/\/home\/|C:\\\\/);
 	});
 
-	it("says a key variable by NAME and whether it is set, never its value", () => {
-		const settings = structuredClone(DEFAULT_SETTINGS);
-		settings.memory.embedder.apiKeyEnv = "SET_ONE";
+	it("says nothing about a key, because it can no longer reach one", () => {
+		// The endpoint, the model and the name of the key variable live in
+		// plugmem's config.toml, which this extension neither parses nor reads.
+		// The old guarantee was "never prints the value"; this one is stronger.
+		const page = readAbout(desk(), "current_settings");
+		expect(page).not.toMatch(/api[_ ]?key/i);
+	});
+
+	it("warns when there is no embedder, because it explains empty answers", () => {
 		const page = readAbout(
 			new AboutDesk({
-				settings,
-				// The dependency cannot return a value even if something wanted one.
-				hasEnv: (name) => name === "SET_ONE",
+				settings: structuredClone(DEFAULT_SETTINGS),
+				engine: {
+					configFile: "/x/config.toml",
+					embedderState: () => "absent",
+				},
 			}),
 			"current_settings",
 		);
-		expect(page).toContain("SET_ONE");
-		expect(page).toContain("currently set");
-		expect(page).toContain("never read into a prompt");
+		expect(page).toContain("embedder: NONE");
+		expect(page).toMatch(/WORDING only/);
+		// The wrong conclusion it is there to prevent.
+		expect(page).toMatch(/do not conclude the fact was never stored/i);
 	});
 
-	it("calls an unset variable EMPTY, which is the diagnostic half", () => {
-		const settings = structuredClone(DEFAULT_SETTINGS);
-		settings.memory.embedder.apiKeyEnv = "MISSING_ONE";
+	it("keeps the warning out of the way when the embedder is answering", () => {
 		const page = readAbout(
-			new AboutDesk({ settings, hasEnv: () => false }),
+			new AboutDesk({
+				settings: structuredClone(DEFAULT_SETTINGS),
+				engine: {
+					configFile: "/x/config.toml",
+					embedderState: () => "active",
+				},
+			}),
 			"current_settings",
 		);
-		expect(page).toContain("currently EMPTY");
+		expect(page).toContain("embedder: answering");
+		expect(page).not.toContain("NONE");
 	});
 
-	it("says no key is sent when none is configured", () => {
-		const page = readAbout(desk(), "current_settings");
-		expect(page).toContain("no key is sent");
+	it("says a provider that stopped answering mid-session has stopped", () => {
+		// The state nothing else can report: settings say an embedder is
+		// configured, and it is - it just is not answering right now.
+		const page = readAbout(
+			new AboutDesk({
+				settings: structuredClone(DEFAULT_SETTINGS),
+				engine: {
+					configFile: "/x/config.toml",
+					embedderState: () => "suspended",
+				},
+			}),
+			"current_settings",
+		);
+		expect(page).toContain("NOT ANSWERING");
+		expect(page).toContain("/longterm-reembed");
 	});
 
-	it("assumes nothing when no environment reader was given", () => {
-		const settings = structuredClone(DEFAULT_SETTINGS);
-		settings.memory.embedder.apiKeyEnv = "SOME_KEY";
-		const page = readAbout(new AboutDesk({ settings }), "current_settings");
-		expect(page).toContain("currently EMPTY");
+	it("names the config file, so nobody edits the wrong one", () => {
+		const page = readAbout(
+			new AboutDesk({
+				settings: structuredClone(DEFAULT_SETTINGS),
+				engine: {
+					configFile: "/home/someone/.pi/accumemory/memory/config.toml",
+					embedderState: () => "active",
+				},
+			}),
+			"current_settings",
+		);
+		expect(page).toContain("/home/someone/.pi/accumemory/memory/config.toml");
 	});
 
-	it("warns when semantic search is off, because it explains empty answers", () => {
-		const settings = structuredClone(DEFAULT_SETTINGS);
-		settings.memory.embedder.enabled = false;
-		const page = readAbout(new AboutDesk({ settings }), "current_settings");
-		expect(page).toContain("WITHOUT VECTORS");
-	});
-
-	it("keeps the warning out of the way when vectors are on", () => {
-		const settings = structuredClone(DEFAULT_SETTINGS);
-		settings.memory.embedder.enabled = true;
-		const page = readAbout(new AboutDesk({ settings }), "current_settings");
-		expect(page).not.toContain("WITHOUT VECTORS");
+	it("admits it did not ask the engine rather than guessing", () => {
+		expect(readAbout(desk(), "current_settings")).toContain(
+			"not known in this session",
+		);
 	});
 });

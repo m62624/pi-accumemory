@@ -6,6 +6,15 @@
  * holds the two in sync.
  */
 
+/**
+ * The embedder as `settings.json` used to describe it - kept only to carry an
+ * existing installation over.
+ *
+ * plugmem is configured in its own `config.toml` now (`memory.plugmemConfig`
+ * says where). These keys are still parsed, and they are still honoured exactly
+ * once: to write that file the first time, so an upgrade does not silently turn
+ * a working embedder off. Nothing reads them afterwards.
+ */
 export interface EmbedderSettings {
 	/**
 	 * Off by default so a machine with no embedding service still works. It is
@@ -28,14 +37,6 @@ export interface EmbedderSettings {
 	 * for the SAME model and do not want a rebuild.
 	 */
 	spaceId: string | null;
-	/**
-	 * Rebuild stored vectors by itself when they no longer match the embedder.
-	 *
-	 * On by default because the alternative is that the memory stops answering
-	 * and says so only at the first lookup. Turn it off to be told instead of
-	 * repaired - the rebuild is then one `/longterm-reembed` away.
-	 */
-	autoReembed: boolean;
 	/**
 	 * Embedding width, written into the database at creation.
 	 *
@@ -155,7 +156,30 @@ export interface Settings {
 		graphDepth: number | null;
 		manifest: boolean;
 		queryMaxChars: number;
+		/**
+		 * Where plugmem's own `config.toml` is; `null` means the extension's
+		 * directory.
+		 *
+		 * The only thing this file says about the engine. Everything else -
+		 * the embedder, recall weights, maintenance - is said in that file,
+		 * which plugmem reads and documents itself.
+		 *
+		 * Relative paths are read from the extension's directory, and a leading
+		 * `~` is the home directory.
+		 */
+		plugmemConfig: string | null;
+		/**
+		 * Rebuild stored vectors by itself when they no longer match the
+		 * embedder, or were never computed.
+		 *
+		 * Ours, not plugmem's: the engine reports the mismatch, this decides
+		 * whether to repair it without being asked. On by default because the
+		 * alternative is a memory that stops answering and says so only at the
+		 * first lookup. Off, the repair is one `/longterm-reembed` away.
+		 */
+		autoReembed: boolean;
 		refresh: RefreshSettings;
+		/** @deprecated Carried over into `config.toml` once, then unused. */
 		embedder: EmbedderSettings;
 		instructions: { alwaysMax: number; alwaysMaxChars: number };
 		notes: { overviewMaxChars: number };
@@ -189,6 +213,8 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 		graphDepth: null,
 		manifest: true,
 		queryMaxChars: 600,
+		plugmemConfig: null,
+		autoReembed: true,
 		refresh: {
 			afterToolCalls: 10,
 			onCompact: true,
@@ -200,7 +226,6 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 			model: "bge-m3",
 			apiKeyEnv: null,
 			spaceId: null,
-			autoReembed: true,
 			dim: 1024,
 		},
 		instructions: {
