@@ -1,61 +1,112 @@
 # pi-accumemory
 
-Long-term memory for [pi](https://github.com/earendil-works/pi-coding-agent),
-carried across sessions and across projects.
+Long-term memory for [pi](https://github.com/earendil-works/pi-coding-agent).
 
-Every pi session starts from nothing. This gives it somewhere to keep what it
-learned: why the cache in this repository is disabled, which formatter this team
-uses, that you prefer Rust for systems work — and lets it ask about any of that
-later, including from a different project.
+A pi session starts from nothing and ends with nothing. This keeps what was
+worth keeping — why the cache in this repository is disabled, which formatter
+this team settled on, that you work in Rust — and lets the model ask about it
+later, including from a different project. Everything is a local file; nothing
+leaves the machine.
 
-Built on [plugmem](https://github.com/m62624/plugmem): a local, embedded,
-bitemporal fact store. No server, no cloud, nothing leaves the machine.
+Configuration is in **[SETTINGS.md](SETTINGS.md)**. This file explains what the
+thing does and how memories are organised; that one has every key, default and
+procedure.
 
-## What it actually does
+## Two kinds of memory
 
-**One database per project, plus one shared one about you.** The project memory
-holds what is true of *this* codebase. The shared one holds what is true of you
-wherever you work, and the router that says which folder is which project.
+| | holds | read from |
+|---|---|---|
+| **shared** | what is true of *you* wherever you work | every session, everywhere |
+| **project** | what is true of *this* codebase | sessions in that folder (and its subfolders) |
 
-**Moving a project folder does not lose its memory.** The project id is minted
-once and never derived from the path, so a move revises a single fact. A key
-derived from the live path would orphan the database and silently start a
-second, empty one.
+Two databases, not one, because the two answer different questions. A fact about
+this repository's build quirks is noise in every other project; a fact about how
+you like to work is worth carrying into all of them. The model picks when it
+writes, answering one question — would this still be true in another project? —
+and the project memory is what it gets when it says nothing. That default is not
+arbitrary: filing a fact in the wrong project makes it merely absent elsewhere,
+while filing it in the shared memory makes it present everywhere, permanently.
 
-**The model can ask.** `longterm_ask` takes a question in ordinary words, mid-
-task: it opens a file, sees a disabled optimisation, and asks *why* instead of
-guessing or asking you again. `longterm_ask_project` asks another project's
-memory — read-only, so it works while you have a session open there.
+The shared database also holds the router: the table saying which folder uses
+which project memory.
 
-**It forgets on purpose.** A background pass runs when the session goes quiet,
-re-reading the transcript pi already writes to disk. It collapses "playing at
-20:30 on Saturday" plus "playing at 21:00 on Tuesday" into one undated fact
-about a habit, and drops the dated ones once their dates have passed.
+## Which memory a folder gets
 
-**It stays out of the prompt's way.** Everything it adds sits below the
-transcript and is rebuilt only on three events — a new message from you, a
-compaction, or ten tool calls. Between those the prompt is byte-identical, so
-the backend's prefix cache survives. That is measured, not assumed:
-`tests/session/prefix-reuse.test.ts` prices it in characters, and keeps the
-counter-example that costs 16,000 characters per new fact when the same block
-sits above the transcript instead of below it.
+Four ways, in the order they are tried.
 
-## Install
+**1. It inherits one.** Walking up from where pi started, the first folder that
+already has a memory wins. So one memory covers a whole tree: a subfolder uses
+the project's, and binding a monorepo root gives every package inside it the
+same memory.
 
-```sh
-pi package add pi-accumemory
-```
+**2. A marker is found.** Only if nothing above has a memory. `.git` by default,
+`memory.project.markers` to name others (`Cargo.toml`, `go.mod`, whatever this
+machine uses). The nearest match wins, the walk is bounded, and your home
+directory is never a project by marker however many dotfiles repositories live
+there.
 
-It works immediately with no configuration. For the memory to answer questions
-phrased differently from how a fact was written, switch on an embedder in the
-engine's `config.toml` — see [SETTINGS.md](SETTINGS.md#the-embedder--in-configtoml).
+**3. You ask for one — `/longterm-new`.** For the two cases no rule can decide:
+a folder with no marker that is nonetheless a body of work, and a folder inside
+a project whose facts should not be filed under it. It mints an empty memory
+bound to exactly that folder, which then outranks whatever it was inheriting —
+being nearer. Everything above is untouched.
 
-## Tools
+**4. You attach an existing one — `/longterm-rebind`.** For a memory that came
+from somewhere else. It lists every memory with its id, size and bound folder,
+you pick, it opens. Both commands reopen in place: no restart.
 
-Every name is prefixed `longterm_`. That is deliberate: `pi-telegram-manager`
+If none of the four applies, the folder has no project memory, and the model is
+told what that costs rather than left to guess: what it stores instead goes to
+the shared memory and shows up in every other project.
+
+Nothing here is guessed from names or git remotes. A wrong guess merges two
+memories, and merged memories cannot be separated again — so the machine shows
+what it has and a person decides.
+
+### Moving between machines
+
+The database files are portable as they are: plugmem writes a snapshot that is
+byte-identical on Linux, macOS and Windows, so there is no export step. Copy
+`memory/` and `notes/` while pi is not running.
+
+What does not travel is the binding — a project is found by its absolute path,
+and that path is different on the other machine. So the copied memory arrives
+intact and unreachable, and `/longterm-rebind` is what attaches it.
+
+## How a question is answered
+
+The store is [plugmem](https://github.com/m62624/plugmem): embedded, no server,
+bitemporal (a fact has both "when we learned it" and "when it was true").
+
+A recall does not search one index. Four sources run, each producing its own
+ranked list:
+
+- **lexical** — BM25 over the fact text;
+- **semantic** — vector similarity, if an embedder is configured. Without one
+  everything else still works, only wording has to match more closely;
+- **graph** — facts reachable through entity links, up to two hops, weighted
+  down by distance;
+- **temporal** — a time range, for "what happened that week".
+
+They are fused by reciprocal rank — `Σ w/(60 + rank)` — rather than by comparing
+scores, because BM25 scores and cosine distances are not on the same scale and
+calibrating them against each other is a tuning problem nobody wins. Then a
+recency boost (half-life 180 days), then deduplication down each fact's revision
+chain to its current version, then greedy selection under a token budget.
+
+Tags, entity and time act as filters over that, not as sources of their own.
+
+Two consequences worth knowing. A recall with only filters and no question
+returns nothing — filters narrow, they do not retrieve. And an embedder is
+optional but changes what "remembering" means: with one, a question worded
+differently from the stored fact still finds it.
+
+## What the model can do
+
+Every tool is prefixed `longterm_`. Deliberately: `pi-telegram-manager`
 registers `manager_remember` over the same engine, about a person in a chat, and
-two plausible `remember` tools with nothing but a name to tell them apart is how
-a fact ends up where nobody looks for it.
+two plausible `remember` tools with nothing but a name between them is how a
+fact ends up where nobody looks for it.
 
 | tool | what it is for |
 |---|---|
@@ -65,68 +116,62 @@ a fact ends up where nobody looks for it.
 | `longterm_remember` | store one durable statement |
 | `longterm_revise` | replace a fact that changed; the old version stays as history |
 | `longterm_forget` | drop one that was wrong, or one whose moment has passed |
-| `longterm_forget_many` | drop a list of them in one write - duplicates, mostly |
+| `longterm_forget_many` | drop a list of them in one write — duplicates, mostly |
 | `longterm_tags` | the tags in use, with counts |
 | `longterm_link` / `longterm_unlink` | typed relationships between entities |
 | `longterm_note_*` | create, read, update and delete notes too long to be facts |
 | `longterm_about` | how this memory itself works, one topic per call |
 
 `longterm_about` is the odd one out: it reads no facts. A model asked how its
-memory works answers from whatever it can reconstruct, which is a plausible
-memory system rather than this one — and then acts on that description. So the
-answer is a document in this package instead: eight topics (`system`, `turn`,
-`scopes`, `writing`, `recall`, `consolidation`, `settings`, `current_settings`),
-one per call, three per turn. The pages can be long because only the turn that
-asks for one pays for it, which is what the always-on instructions can never do.
+memory works answers from whatever it can reconstruct — a plausible memory
+system rather than this one — and then acts on that description. So the answer
+is a document in this package instead: eight topics (`system`, `turn`, `scopes`,
+`writing`, `recall`, `consolidation`, `settings`, `current_settings`), one per
+call, three per turn. `current_settings` prints the real paths and the values
+this session is running with, resolved by the code that opened them, so "where
+do I change that" is answered with a path rather than a convention.
 
-`current_settings` prints the real path of the settings file and of the
-databases, resolved by the code that opened them - so the model answers "where do
-I change that" with a path rather than a convention.
+Commands, for you rather than the model: `/longterm-status`, `/longterm-new`,
+`/longterm-rebind`, `/longterm-consolidate`, `/longterm-reembed`.
 
-Commands: `/longterm-status`, `/longterm-new`, `/longterm-rebind`,
-`/longterm-consolidate`, `/longterm-reembed`.
+## What it does on its own
 
-## Which folder gets its own memory
+**A background pass, when the session goes quiet.** It re-reads the transcript
+pi already writes to disk and curates: stores what was missed, collapses
+"playing at 20:30 on Saturday" and "playing at 21:00 on Tuesday" into one
+undated fact about a habit, drops dated facts whose dates have passed. It stops
+the instant you type, and whatever it had decided by then is already saved.
 
-Walking up from where pi was started: a folder that already has a memory wins,
-and only if none does are the markers consulted — `.git` alone by default,
-`memory.project.markers` to say otherwise. So one memory can serve a whole tree
-(bind a monorepo root and every package inherits it) until a package is given
-its own with `/longterm-new`, which then wins by being nearer.
+**It keeps out of the prompt's way.** What it adds sits below the transcript and
+is rebuilt on three events only — a new message from you, a compaction, or ten
+tool calls. Between those the prompt is byte-identical, so the backend's prefix
+cache survives. Priced rather than assumed: `tests/session/prefix-reuse.test.ts`
+counts the characters, and keeps the counter-example that costs 16,000 of them
+per new fact when the same block sits above the transcript instead of below.
 
-A folder nobody claimed has no project memory, and the model is told what that
-costs: anything it stores instead goes to the shared memory about you and is
-shown in every other project. `/longterm-new` gives that folder a memory of its
-own — no marker required, no restart needed.
+**It will not store credentials.** Not tokens, not keys, not passwords, not the
+contents of `.env`. This memory is permanent and is read at the start of every
+session in every project, so a secret written into it is re-injected into
+context indefinitely. The rule is in the shipped instructions and in the tool
+descriptions, and is composed *below* anything you add — your own additions can
+make it stricter, never weaker.
 
-## Carrying it to another machine
+## Install
 
-Copy `memory/` and `notes/` out of the extension directory while pi is not
-running. The database files are portable as they are - plugmem's snapshot is
-byte-identical across platforms - but a project is found by its absolute path,
-and that path is different over there, so a copied memory arrives intact and
-unreachable.
+```sh
+pi package add pi-accumemory
+```
 
-`/longterm-rebind` attaches it: a list of every memory with its id, size and the
-folder it is bound to, unbound ones and ones whose folder is missing first. Pick
-one, confirm, and it is open in this session - no restart. It refuses if this
-folder's memory already holds facts, because that would be a merge, and merged
-memories cannot be separated again. See SETTINGS.md for the whole procedure.
-
-## What it will not store
-
-Credentials. Not tokens, not keys, not passwords, not the contents of `.env`.
-This memory is permanent and is read at the start of every session in every
-project, so a secret written into it is re-injected into context indefinitely.
-The rule is in the shipped instructions, in the tool description, and is
-composed *below* anything you add — so your own additions can only make it
-stricter.
+It works with no configuration. To have questions match facts worded
+differently, switch on an embedder in the engine's own `config.toml` — see
+[SETTINGS.md](SETTINGS.md#the-embedder--in-configtoml).
 
 ## Where things live
 
 ```
 <agentDir>/extensions/pi-accumemory/
   settings.json                  see SETTINGS.md
+  memory/config.toml             plugmem's own configuration; yours to edit
   memory/db/common.plugmem       facts about you, and the project router
   memory/db/p_<projectId>.plugmem
   notes/                         note bodies, each with a pointer fact
@@ -151,9 +196,9 @@ npm run coverage    # vitest with v8 coverage
 
 Tests run against an in-memory fake for speed and against the real plugmem addon
 in `tests/integration/` for truth. The fake is deliberately faithful about the
-things the code depends on — fact ids start at zero, a filter-only recall
-returns nothing, `revise` closes rather than overwrites — because a forgiving
-fake is a fake that lets bugs through.
+things the code depends on — fact ids start at zero, a filter-only recall returns
+nothing, `revise` closes rather than overwrites — because a forgiving fake is a
+fake that lets bugs through.
 
 ## Licence
 
