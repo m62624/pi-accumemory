@@ -45,6 +45,16 @@ export const nodeFileOps: FileOps = {
 		}
 	},
 
+	async removeDir(dir: string): Promise<boolean> {
+		try {
+			await rm(dir, { recursive: true });
+			return true;
+		} catch (error) {
+			if (isMissing(error)) return false;
+			throw error;
+		}
+	},
+
 	async exists(candidate: string): Promise<boolean> {
 		try {
 			await stat(candidate);

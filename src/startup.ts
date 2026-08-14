@@ -27,7 +27,7 @@ import {
 	projectDbName,
 } from "./layout.ts";
 import { NoteStore } from "./notes/store.ts";
-import { toStoredPath } from "./paths/path-codec.ts";
+import { fromStoredPath, toStoredPath } from "./paths/path-codec.ts";
 import { detectProjectRoot } from "./project/detect.ts";
 import { ProjectRouter } from "./router/router.ts";
 import { MemoryController } from "./session/controller.ts";
@@ -52,6 +52,7 @@ import {
 import type { EmbedderState } from "./storage/port.ts";
 import { defined } from "./tools/args.ts";
 import { longtermTools } from "./tools/definitions.ts";
+import type { RebindCandidate } from "./ui/rebind-picker.ts";
 import type { ProgressStep } from "./ui/reembed-progress.ts";
 
 /**
@@ -88,6 +89,22 @@ export interface StartupOptions {
 	home?: string;
 }
 
+/**
+ * The answer to "bind this memory here".
+ *
+ * A refusal is data rather than an exception because every one of them is a
+ * sentence for a person: they all mean "not this, and here is why", and none of
+ * them is a fault in the extension.
+ */
+export type RebindOutcome =
+	| { ok: true; projectId: string; from: string; releasedId?: string }
+	| { ok: false; reason: string };
+
+/** The answer to "delete this memory". */
+export type DeleteOutcome =
+	| { ok: true; removed: string[] }
+	| { ok: false; reason: string };
+
 export interface StartedSession {
 	controller: MemoryController;
 	/** The parsed settings, for the entry point's rendering decisions. */
@@ -120,6 +137,29 @@ export interface StartedSession {
 		steps: ProgressStep[];
 		blocked?: string;
 	}>;
+	/**
+	 * Every memory this workspace holds, as the picker needs to show them.
+	 *
+	 * Reads each database read-only to count what is in it, so the person
+	 * choosing sees size rather than a file name.
+	 */
+	rebindCandidates(): Promise<RebindCandidate[]>;
+	/**
+	 * Makes `projectId` the memory of the folder this session is standing in.
+	 *
+	 * Refuses rather than merges: the folder's current memory has to be empty,
+	 * because two memories joined into one cannot be taken apart again.
+	 * The caller closes and restarts the session afterwards - this only writes
+	 * the routes.
+	 */
+	rebindTo(projectId: string): Promise<RebindOutcome>;
+	/**
+	 * Deletes a memory: its database, its sidecars, its notes and its routes.
+	 *
+	 * Only for a memory nothing is bound to. Call it after `close()`, or the
+	 * files are still held open - which on Windows means they do not go.
+	 */
+	deleteMemory(projectId: string): Promise<DeleteOutcome>;
 	/** Everything worth telling the user once, in plain sentences. */
 	notices: string[];
 	/** plugmem's config file, as it was actually resolved. */
@@ -428,6 +468,41 @@ export async function startSession(
 					}),
 			});
 
+	/**
+	 * How many live facts a memory holds, or `undefined` when it will not open.
+	 *
+	 * Tombstones are subtracted, because a person reading "84 facts" means facts
+	 * they could get an answer out of - and a memory that has just been tidied
+	 * would otherwise claim to hold more than it did before.
+	 *
+	 * A database another session has open is not an error here: this is a list
+	 * being drawn, and a row with no count beats a row that is missing.
+	 */
+	const countFacts = async (id?: string): Promise<number | undefined> => {
+		if (id === undefined) return undefined;
+		try {
+			// Our own project is counted through the handle we already hold: a
+			// second reader would see the last published snapshot, which is not
+			// what this session has been writing into.
+			if (id === projectId && projectWriter !== undefined) {
+				const stats = await projectWriter.stats();
+				return stats.facts - stats.tombstones;
+			}
+			const reader = await PlugmemReader.open(
+				dbPath(projectDbName(id)),
+				openOptions,
+			);
+			try {
+				const stats = await reader.stats();
+				return stats.facts - stats.tombstones;
+			} finally {
+				reader.close();
+			}
+		} catch {
+			return undefined;
+		}
+	};
+
 	return {
 		controller,
 		settings,
@@ -513,6 +588,128 @@ export async function startSession(
 				onProgress?.(steps);
 			}
 			return { steps };
+		},
+		rebindCandidates: async () => {
+			const candidates: RebindCandidate[] = [];
+			for (const project of await router.list()) {
+				const file = dbPath(projectDbName(project.projectId));
+				candidates.push({
+					projectId: project.projectId,
+					name: project.name,
+					path: fromStoredPath(project.path, pathModule),
+					bound: project.bound,
+					folderExists: await fs.exists(
+						fromStoredPath(project.path, pathModule),
+					),
+					databaseExists: await fs.exists(file),
+					...defined({ facts: await countFacts(project.projectId) }),
+					current: project.projectId === projectId,
+				});
+			}
+			return candidates;
+		},
+		rebindTo: async (target: string) => {
+			if (projectRoot === undefined) {
+				return {
+					ok: false as const,
+					reason:
+						"This directory is not a project, so it has no memory to rebind. " +
+						"Open a folder with a project marker in it (.git, package.json, Cargo.toml and the like).",
+				};
+			}
+			if (target === projectId) {
+				return {
+					ok: false as const,
+					reason: "That memory is already this folder's.",
+				};
+			}
+			const chosen = (await router.list()).find(
+				(project) => project.projectId === target,
+			);
+			if (chosen === undefined) {
+				return { ok: false as const, reason: `There is no memory ${target}.` };
+			}
+			if (!(await fs.exists(dbPath(projectDbName(target))))) {
+				return {
+					ok: false as const,
+					reason:
+						`The database file for ${target} is not in ${pathModule.join(layout.memoryDir, "db")}, ` +
+						"so there is nothing to bind. Copy it there first.",
+				};
+			}
+			// The one refusal that is not about a missing thing. Binding a memory
+			// to a folder whose own memory already holds facts would leave two
+			// sets of facts about this codebase and no way to tell them apart
+			// afterwards - so it is refused while it is still separable.
+			const here = await countFacts(projectId);
+			if (here === undefined) {
+				// Not the same as empty. The rule is "only over a memory with
+				// nothing in it", and a memory that would not open has not said
+				// what is in it - so this refuses instead of assuming the
+				// convenient answer.
+				return {
+					ok: false as const,
+					reason:
+						"This folder's memory could not be read, so there is no way to tell whether " +
+						"binding over it would lose anything. Nothing was changed.",
+				};
+			}
+			if (here > 0) {
+				return {
+					ok: false as const,
+					reason:
+						`This folder's memory already holds ${here} ${here === 1 ? "fact" : "facts"}, ` +
+						"and joining two memories cannot be undone. Empty it (or move it aside) first.",
+				};
+			}
+			const storedHere = toStoredPath(projectRoot, pathModule);
+			const released = await router.release(storedHere);
+			// A project that MOVED gets a move recorded; one that was released
+			// has no "from" worth naming, so it is simply bound.
+			if (chosen.bound) {
+				await router.relocate(chosen.path, storedHere);
+			} else {
+				await router.bind(target, storedHere);
+			}
+			return {
+				ok: true as const,
+				projectId: target,
+				from: fromStoredPath(chosen.path, pathModule),
+				...defined({ releasedId: released }),
+			};
+		},
+		deleteMemory: async (doomed: string) => {
+			const known = (await router.list()).find(
+				(project) => project.projectId === doomed,
+			);
+			if (known === undefined) {
+				return { ok: false as const, reason: `There is no memory ${doomed}.` };
+			}
+			if (known.bound) {
+				return {
+					ok: false as const,
+					reason:
+						`${doomed} is the memory of ${fromStoredPath(known.path, pathModule)}. ` +
+						"Only a memory that belongs to no folder can be deleted here.",
+				};
+			}
+			const dbDir = pathModule.join(layout.memoryDir, "db");
+			const stem = projectDbName(doomed);
+			const removed: string[] = [];
+			// The database and its sidecars: plugmem distinguishes `.lock`,
+			// `.journal` and `.snap.N` by what follows the first dot, so the whole
+			// family is exactly the files whose name starts with the stem and a
+			// dot. Leaving a journal behind would resurrect a deleted memory.
+			for (const file of await fs.listFiles(dbDir)) {
+				if (!file.startsWith(`${stem}.`)) continue;
+				if (await fs.remove(pathModule.join(dbDir, file))) {
+					removed.push(pathModule.join(dbDir, file));
+				}
+			}
+			const notes = layout.projectNotesDir(doomed);
+			if (await fs.removeDir(notes)) removed.push(notes);
+			await router.forget(doomed);
+			return { ok: true as const, removed };
 		},
 		...(projectId === undefined ? {} : { projectId }),
 		...(projectRoot === undefined ? {} : { projectRoot }),

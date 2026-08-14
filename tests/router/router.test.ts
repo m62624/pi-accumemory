@@ -158,6 +158,129 @@ describe("ProjectRouter.relocate", () => {
 	});
 });
 
+describe("ProjectRouter.release and .bind", () => {
+	let common: FakeMemory;
+	let router: ProjectRouter;
+
+	beforeEach(() => {
+		common = new FakeMemory();
+		router = new ProjectRouter(common, { newId: fixedIds("aaa111", "bbb222") });
+	});
+
+	it("frees the folder without touching the memory", async () => {
+		// The half `relocate` never had: in this extension a folder is never
+		// free, because starting a session in one mints a memory for it.
+		await router.resolve("/home/m/Projects/app");
+		expect(await router.release("/home/m/Projects/app")).toBe("aaa111");
+
+		const after = await router.resolve("/home/m/Projects/app");
+		expect(after).toEqual({ projectId: "bbb222", created: true });
+	});
+
+	it("keeps a released memory listed, with the path it used to have", async () => {
+		// Hiding it would leave a database on disk that nothing can name - and
+		// the old path is the only thing a person recognises it by.
+		await router.resolve("/home/m/Projects/app");
+		await router.release("/home/m/Projects/app");
+
+		const [project] = await router.list();
+		expect(project).toMatchObject({
+			projectId: "aaa111",
+			path: "/home/m/Projects/app",
+			bound: false,
+		});
+	});
+
+	it("takes the identifying edge down with the route", async () => {
+		await router.resolve("/home/m/Projects/app");
+		await router.release("/home/m/Projects/app");
+		expect(common.edges.filter((edge) => edge.rel === IDENTIFIES)).toHaveLength(
+			0,
+		);
+	});
+
+	it("still answers where a released memory used to live", async () => {
+		await router.resolve("/home/m/Projects/app");
+		await router.release("/home/m/Projects/app");
+		expect(await router.pathOf("aaa111")).toBe("/home/m/Projects/app");
+	});
+
+	it("treats releasing an unbound folder as nothing to do", async () => {
+		expect(await router.release("/home/m/nowhere")).toBeUndefined();
+	});
+
+	it("binds a released memory to a new folder, keeping its id", async () => {
+		await router.resolve("/home/m/Projects/app");
+		await router.release("/home/m/Projects/app");
+		await router.bind("aaa111", "/home/other/app");
+
+		expect(await router.resolve("/home/other/app")).toEqual({
+			projectId: "aaa111",
+			created: false,
+		});
+		const [project] = await router.list();
+		expect(project).toMatchObject({ path: "/home/other/app", bound: true });
+	});
+
+	it("refuses to bind onto a folder another memory holds", async () => {
+		// Two memories on one folder is a merge, and a merge cannot be undone.
+		await router.resolve("/home/m/Projects/app");
+		await router.resolve("/home/m/Projects/api");
+		await expect(router.bind("aaa111", "/home/m/Projects/api")).rejects.toThrow(
+			/already/i,
+		);
+	});
+
+	it("refuses to bind a memory it has never heard of", async () => {
+		await expect(router.bind("ghost", "/home/m/Projects/app")).rejects.toThrow(
+			/not a registered project/i,
+		);
+	});
+
+	it("does nothing when the memory is already bound there", async () => {
+		await router.resolve("/home/m/Projects/app");
+		const before = common.facts.length;
+		await router.bind("aaa111", "/home/m/Projects/app");
+		expect(common.facts.length).toBe(before);
+	});
+});
+
+describe("ProjectRouter.forget", () => {
+	it("removes the project and its routes, so nothing lists it again", async () => {
+		const common = new FakeMemory();
+		const router = new ProjectRouter(common, {
+			newId: fixedIds("aaa111", "bbb222"),
+		});
+		await router.resolve("/home/m/Projects/app");
+		await router.release("/home/m/Projects/app");
+		await router.forget("aaa111");
+
+		expect(await router.list()).toEqual([]);
+		expect(common.edges.filter((edge) => edge.rel === IDENTIFIES)).toHaveLength(
+			0,
+		);
+		// And the folder is free again rather than pointing at a memory that has
+		// been deleted from disk.
+		expect(await router.resolve("/home/m/Projects/app")).toEqual({
+			projectId: "bbb222",
+			created: true,
+		});
+	});
+
+	it("leaves other projects alone", async () => {
+		const router = new ProjectRouter(new FakeMemory(), {
+			newId: fixedIds("aaa111", "bbb222"),
+		});
+		await router.resolve("/home/m/Projects/app");
+		await router.resolve("/home/m/Projects/api");
+		await router.forget("aaa111");
+
+		expect((await router.list()).map((project) => project.projectId)).toEqual([
+			"bbb222",
+		]);
+	});
+});
+
 describe("ProjectRouter.list", () => {
 	it("names every known project, so the model never guesses one", async () => {
 		const common = new FakeMemory();

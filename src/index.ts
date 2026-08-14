@@ -18,7 +18,7 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { extensionLayout } from "./layout.ts";
+import { extensionLayout, projectDbName } from "./layout.ts";
 import { isToolReport, personLine } from "./memory/tool-report.ts";
 import type { Turn } from "./memory/transcript-view.ts";
 import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
@@ -31,6 +31,12 @@ import { type StartedSession, startSession } from "./startup.ts";
 import type { EmbedderState } from "./storage/port.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import { lazyController, MEMORY_UNAVAILABLE } from "./tools/lazy.ts";
+import { terminalWidth } from "./ui/fit.ts";
+import {
+	buildRebindOptions,
+	type RebindCandidate,
+	resolveRebindPick,
+} from "./ui/rebind-picker.ts";
 import {
 	type ProgressStep,
 	reembedProgressLines,
@@ -48,7 +54,17 @@ export default function accumemory(pi: ExtensionAPI): void {
 	const agentDir = getAgentDir();
 	const layout = extensionLayout(agentDir, path);
 
-	const ready = (async () => {
+	/**
+	 * Brings the memory up.
+	 *
+	 * A function rather than the one-shot it used to be, because rebinding this
+	 * folder to a different memory has to reopen everything - and the whole
+	 * extension already reaches its state through the mutable `session` above
+	 * (and `lazyController` below), so swapping it is a matter of closing one
+	 * and starting the next. `startSession` is pure over its injected
+	 * dependencies, so calling it again is not a special case.
+	 */
+	const boot = async (): Promise<StartedSession | undefined> => {
 		const raw = await nodeFileOps.readFile(layout.settingsFile);
 		const { settings, warnings } = parseSettings(
 			raw === undefined ? undefined : (JSON.parse(raw) as unknown),
@@ -66,7 +82,9 @@ export default function accumemory(pi: ExtensionAPI): void {
 		});
 		started.notices.unshift(...warnings);
 		return started;
-	})()
+	};
+
+	const ready = boot()
 		.then((started) => {
 			session = started;
 			return started;
@@ -241,6 +259,132 @@ export default function accumemory(pi: ExtensionAPI): void {
 			);
 			if (stuck !== "") lines.push("", stuck);
 			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("longterm-rebind", {
+		description:
+			"Bind a memory from elsewhere - a copied one, or one left unbound - to this folder",
+		handler: async (_args, ctx) => {
+			await ready;
+			if (session === undefined) {
+				ctx.ui.notify(startupError ?? "Long-term memory is off.", "warning");
+				return;
+			}
+			if (!ctx.hasUI) {
+				ctx.ui.notify(
+					"This command picks a memory from a list, so it needs a terminal.",
+					"warning",
+				);
+				return;
+			}
+
+			const candidates = await session.rebindCandidates();
+			const width = terminalWidth();
+			// A flat selector with no scrollback, so a long roster is paged and a
+			// page row re-opens the picker rather than choosing anything.
+			let page = 0;
+			let chosen: RebindCandidate | undefined;
+			for (;;) {
+				const options = buildRebindOptions(candidates, { page, width });
+				if (options.length === 0) {
+					ctx.ui.notify("There are no other memories to bind here.", "info");
+					return;
+				}
+				const selected = await ctx.ui.select(
+					"Which memory belongs to this folder?",
+					options.map((option) => option.label),
+				);
+				if (selected === undefined) return;
+				const pick = resolveRebindPick(options, selected);
+				if (pick === null) return;
+				if (pick.kind === "page") {
+					page = pick.page;
+					continue;
+				}
+				chosen = candidates.find(
+					(candidate) => candidate.projectId === pick.projectId,
+				);
+				break;
+			}
+			if (chosen === undefined) return;
+
+			const here = session.projectRoot ?? process.cwd();
+			const facts =
+				chosen.facts === undefined ? "an unknown number of" : `${chosen.facts}`;
+			if (
+				!(await ctx.ui.confirm(
+					"Bind this memory here?",
+					`${chosen.projectId} (${facts} facts), ${chosen.bound ? "bound to" : "last bound to"} ${chosen.path}\n` +
+						`becomes the memory of ${here}.`,
+				))
+			) {
+				return;
+			}
+			// Asked separately, because it is a different question: the first is
+			// "this memory here", this one is "and that one no longer".
+			const occupant = candidates.find((candidate) => candidate.current);
+			if (
+				occupant !== undefined &&
+				!(await ctx.ui.confirm(
+					"Replace the memory this folder uses now?",
+					`${occupant.projectId} (${occupant.facts ?? 0} facts) serves ${here} today.\n` +
+						"It stays on disk, bound to nothing, and you will be asked whether to delete it.",
+				))
+			) {
+				return;
+			}
+
+			const outcome = await session.rebindTo(chosen.projectId);
+			if (!outcome.ok) {
+				ctx.ui.notify(outcome.reason, "warning");
+				return;
+			}
+
+			// Close before reopening: the old memory is held under a writer lock,
+			// and nothing may be bound to a database this session still owns.
+			idle.interrupt();
+			session.close();
+			session = undefined;
+			try {
+				session = await boot();
+			} catch (error) {
+				startupError = `pi-accumemory could not reopen its memory: ${describe(error)}`;
+				ctx.ui.notify(startupError, "error");
+				return;
+			}
+
+			// The orphan is deleted through the NEW session, and only after it: by
+			// then nothing holds the file open, which is what makes the removal
+			// work on Windows too.
+			let aftermath = "";
+			const released = outcome.releasedId;
+			if (released !== undefined && session !== undefined) {
+				const file = path.join(
+					layout.memoryDir,
+					"db",
+					`${projectDbName(released)}.plugmem`,
+				);
+				if (
+					await ctx.ui.confirm(
+						"Delete the memory that was here?",
+						`${released} now belongs to no folder. Its database is\n${file}\n` +
+							"Deleting removes it, its notes and its place in the list. This cannot be undone.",
+					)
+				) {
+					const deleted = await session.deleteMemory(released);
+					aftermath = deleted.ok
+						? ` Deleted ${released} (${deleted.removed.length} files).`
+						: ` ${released} was left alone: ${deleted.reason}`;
+				} else {
+					aftermath = ` ${released} was left where it is; /longterm-rebind lists it as unbound, and can delete it later.`;
+				}
+			}
+			ctx.ui.notify(
+				`${here} now uses memory ${outcome.projectId} (was ${outcome.from}). ` +
+					`The memory has been reopened - no restart needed.${aftermath}`,
+				"info",
+			);
 		},
 	});
 

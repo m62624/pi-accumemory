@@ -29,6 +29,23 @@ export class FakeFs implements FileOps {
 		return this.files.delete(file);
 	}
 
+	/** Drops the directory, everything under it, and the directory entries. */
+	async removeDir(dir: string): Promise<boolean> {
+		const trimmed = dir.replace(/[/\\]+$/, "");
+		const inside = (path: string): boolean =>
+			path === trimmed ||
+			path.startsWith(`${trimmed}/`) ||
+			path.startsWith(`${trimmed}\\`);
+		let removed = this.dirs.delete(trimmed);
+		for (const file of [...this.files.keys()]) {
+			if (inside(file)) removed = this.files.delete(file) || removed;
+		}
+		for (const known of [...this.dirs]) {
+			if (inside(known)) removed = this.dirs.delete(known) || removed;
+		}
+		return removed;
+	}
+
 	async exists(candidate: string): Promise<boolean> {
 		return this.files.has(candidate) || this.dirs.has(candidate);
 	}

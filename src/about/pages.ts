@@ -529,7 +529,27 @@ than merging with it - which is quiet, and is worth saying out loud when someone
 asks why their global text stopped applying.
 
 The rule about never storing a secret is composed LAST, below anything anyone
-appended. An addition can make it stricter. Nothing can make it weaker.`,
+appended. An addition can make it stricter. Nothing can make it weaker.
+
+## Moving the memory to another machine
+
+Worth knowing, because the answer is short and the guesses are long.
+
+The database files are portable exactly as they are: plugmem writes a snapshot
+that is byte-identical on every platform, so there is nothing to export or
+convert. Copy \`memory/\` and \`notes/\` from the extension directory (paths on
+the \`current_settings\` page) while Pi is not running.
+
+What does not travel is the BINDING. A project's memory is found by the
+project's absolute path, and that path is different on the other machine, so a
+copied memory arrives intact and unreachable - a new empty one is made instead.
+The user reattaches it with \`/longterm-rebind\`, which lists every memory with
+its size and the folder it belongs to, and binds the chosen one here.
+
+You cannot do this. It is a command the user types, and it asks them to confirm
+twice. It also refuses when this folder's memory already holds facts, because
+binding another one there would merge two memories, and merged memories cannot
+be separated again.`,
 } as const;
 
 export type AboutPageKey = keyof typeof ABOUT_PAGES;

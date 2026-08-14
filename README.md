@@ -83,7 +83,22 @@ asks for one pays for it, which is what the always-on instructions can never do.
 databases, resolved by the code that opened them - so the model answers "where do
 I change that" with a path rather than a convention.
 
-Commands: `/longterm-status`, `/longterm-consolidate`, `/longterm-reembed`.
+Commands: `/longterm-status`, `/longterm-rebind`, `/longterm-consolidate`,
+`/longterm-reembed`.
+
+## Carrying it to another machine
+
+Copy `memory/` and `notes/` out of the extension directory while pi is not
+running. The database files are portable as they are - plugmem's snapshot is
+byte-identical across platforms - but a project is found by its absolute path,
+and that path is different over there, so a copied memory arrives intact and
+unreachable.
+
+`/longterm-rebind` attaches it: a list of every memory with its id, size and the
+folder it is bound to, unbound ones and ones whose folder is missing first. Pick
+one, confirm, and it is open in this session - no restart. It refuses if this
+folder's memory already holds facts, because that would be a merge, and merged
+memories cannot be separated again. See SETTINGS.md for the whole procedure.
 
 ## What it will not store
 

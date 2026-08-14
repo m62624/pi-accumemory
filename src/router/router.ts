@@ -23,6 +23,7 @@ import {
 	pathEntity,
 	projectEntity,
 	ROUTE_TAG,
+	UNBOUND_KEY,
 } from "./entities.ts";
 
 export interface ResolvedProject {
@@ -36,6 +37,14 @@ export interface KnownProject {
 	/** The folder name — what a person calls the project. */
 	name: string;
 	path: string;
+	/**
+	 * Whether `path` is a live binding or the last place this memory lived.
+	 *
+	 * `false` after {@link ProjectRouter.release}. Such a project is still
+	 * listed - its facts are intact and still answer a cross-project question,
+	 * and hiding it would leave a database on disk that nothing can name.
+	 */
+	bound: boolean;
 	description?: string;
 }
 
@@ -170,6 +179,149 @@ export class ProjectRouter {
 	}
 
 	/**
+	 * Gives an existing memory a folder.
+	 *
+	 * The counterpart of {@link release}, and what attaches a memory that has
+	 * been carried over from another machine: the database is intact, the path
+	 * inside it belongs to a filesystem that is not here, and this writes the
+	 * binding the local one needs. `relocate` is the other way of arriving at a
+	 * route and stays for what it says - a project that MOVED, where naming both
+	 * ends is worth a sentence of history. A project that was released has no
+	 * "from" to name.
+	 *
+	 * @throws if the path is already some other project's, because merging two
+	 * memories cannot be undone, or if the project is not registered at all.
+	 */
+	async bind(projectId: string, storedPath: string): Promise<void> {
+		assertStored(storedPath);
+		const occupant = await this.lookup(storedPath);
+		if (occupant !== undefined && occupant !== projectId) {
+			throw new Error(
+				`router: ${storedPath} already belongs to project ${occupant}`,
+			);
+		}
+		if (occupant === projectId) return;
+		const project = await this.projectFact(projectId);
+		if (project === undefined) {
+			throw new Error(`router: ${projectId} is not a registered project`);
+		}
+
+		const route = await this.common.remember({
+			text: `Project memory ${projectId} is the folder ${storedPath}`,
+			entity: pathEntity(storedPath),
+			tags: [ROUTE_TAG],
+			metadata: { [PROJECT_ID_KEY]: projectId, [PATH_KEY]: storedPath },
+		});
+		await this.common.link({
+			src: pathEntity(storedPath),
+			rel: IDENTIFIES,
+			dst: projectEntity(projectId),
+			provenance: route.id,
+		});
+		await this.common.revise(project.factId, {
+			text: `Project "${storedBasename(storedPath)}" (${projectId}) lives at ${storedPath}`,
+			entity: projectEntity(projectId),
+			tags: [PROJECT_TAG],
+			metadata: { [PROJECT_ID_KEY]: projectId, [PATH_KEY]: storedPath },
+		});
+		await this.common.checkpoint();
+	}
+
+	/**
+	 * Takes a folder's memory away from it, keeping the memory itself.
+	 *
+	 * The half of `relocate` that had no name. `relocate` moves a project to a
+	 * folder that is FREE, and in this extension a folder never is: `startup`
+	 * resolves every project directory on the way in, so by the time a person
+	 * can ask for anything, the folder already holds a freshly minted, empty
+	 * memory. Binding another one here means releasing that one first.
+	 *
+	 * The project stays listed and keeps its facts. What changes is that its
+	 * path becomes history: the route fact is closed by revision (not
+	 * `forget` - "where did this live in March" is still a fair question), and
+	 * the project's own fact says it has no folder while still carrying the
+	 * path it had, because that path is how a person recognises it later.
+	 *
+	 * @returns the released project's id, or `undefined` when nothing was bound
+	 * to `storedPath` - releasing an unbound folder is a no-op, not a failure.
+	 */
+	async release(storedPath: string): Promise<string | undefined> {
+		assertStored(storedPath);
+		const route = await this.routeFact(storedPath);
+		if (route === undefined) return undefined;
+		const projectId = route.projectId;
+
+		await this.common.unlink({
+			src: pathEntity(storedPath),
+			rel: IDENTIFIES,
+			dst: projectEntity(projectId),
+		});
+		await this.common.revise(route.factId, {
+			text: `Project memory ${projectId} is no longer the folder ${storedPath}`,
+			entity: pathEntity(storedPath),
+			tags: [ROUTE_TAG],
+			// The id stays, and `routeFact` skips the fact because of the flag
+			// instead. `relocate` frees a path by dropping the id, which works
+			// but leaves nothing able to find the fact again - and deleting a
+			// project has to find every route it ever had.
+			metadata: {
+				[PROJECT_ID_KEY]: projectId,
+				[PATH_KEY]: storedPath,
+				[UNBOUND_KEY]: "true",
+			},
+		});
+		const project = await this.projectFact(projectId);
+		if (project !== undefined) {
+			await this.common.revise(project.factId, {
+				text: `Project "${storedBasename(storedPath)}" (${projectId}) is not bound to a folder; it was at ${storedPath}`,
+				entity: projectEntity(projectId),
+				tags: [PROJECT_TAG],
+				metadata: {
+					[PROJECT_ID_KEY]: projectId,
+					[PATH_KEY]: storedPath,
+					[UNBOUND_KEY]: "true",
+				},
+			});
+		}
+		await this.common.checkpoint();
+		return projectId;
+	}
+
+	/**
+	 * Removes a project from the router entirely.
+	 *
+	 * For the one case where the bitemporal answer is worthless: the database
+	 * file is being deleted, so "where did it live in March" has nothing left to
+	 * describe. `forget`, therefore, rather than the revision every other
+	 * operation here uses.
+	 *
+	 * The files are not this class's business - it only ever touches the common
+	 * database - so the caller deletes them and calls this.
+	 */
+	async forget(projectId: string): Promise<void> {
+		const doomed: number[] = [];
+		for (const fact of await this.common.scan({ tags: [PROJECT_TAG] })) {
+			if (fact.metadata[PROJECT_ID_KEY] === projectId) doomed.push(fact.id);
+		}
+		for (const fact of await this.common.scan({ tags: [ROUTE_TAG] })) {
+			if (fact.metadata[PROJECT_ID_KEY] !== projectId) continue;
+			doomed.push(fact.id);
+			const path = fact.metadata[PATH_KEY];
+			// The edge outlives the fact it came from, so it is taken down by
+			// name rather than left dangling at a project that no longer exists.
+			if (path !== undefined) {
+				await this.common.unlink({
+					src: pathEntity(path),
+					rel: IDENTIFIES,
+					dst: projectEntity(projectId),
+				});
+			}
+		}
+		if (doomed.length > 0) await this.common.forgetMany(doomed);
+		await this.common.checkpoint();
+	}
+
+	/**
 	 * Where a project lives now, or where it lived at `asOf`.
 	 *
 	 * An entity lookup, because an entity is a retrieval SOURCE and therefore
@@ -206,7 +358,12 @@ export class ProjectRouter {
 			const path = fact.metadata[PATH_KEY];
 			if (projectId === undefined || path === undefined) continue;
 			if (projects.some((project) => project.projectId === projectId)) continue;
-			projects.push({ projectId, path, name: storedBasename(path) });
+			projects.push({
+				projectId,
+				path,
+				name: storedBasename(path),
+				bound: fact.metadata[UNBOUND_KEY] !== "true",
+			});
 		}
 		return projects;
 	}
@@ -229,6 +386,9 @@ export class ProjectRouter {
 		});
 		for (const hit of found.facts) {
 			const card = await this.common.get(hit.id);
+			// A released route keeps its id so a deletion can find it; the flag
+			// is what says the path is free again.
+			if (card?.metadata[UNBOUND_KEY] === "true") continue;
 			const projectId = card?.metadata[PROJECT_ID_KEY];
 			if (projectId !== undefined) return { factId: hit.id, projectId };
 		}

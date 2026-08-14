@@ -39,3 +39,14 @@ export const PROJECT_ID_KEY = "projectId";
 
 /** Metadata key carrying the canonical path on a route fact. */
 export const PATH_KEY = "path";
+
+/**
+ * Metadata key marking a project that no longer has a folder.
+ *
+ * Present and `"true"` on the project's own fact after `release`. The path stays
+ * in {@link PATH_KEY} on purpose - it is the only thing that lets a person
+ * recognise which memory this is, months later, in a picker. So the flag says
+ * "this path is history", and nothing reads the path as a live binding without
+ * checking it.
+ */
+export const UNBOUND_KEY = "unbound";

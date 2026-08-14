@@ -459,8 +459,46 @@ client names) but never weaker.
 | command | what it does |
 |---|---|
 | `/longterm-status` | which project this is, where the memory lives, what projects are registered |
+| `/longterm-rebind` | give this folder a different memory — see below |
 | `/longterm-consolidate` | run the background pass now instead of waiting for a quiet period |
 | `/longterm-reembed` | rebuild every stored vector after an embedder change |
+
+## Moving your memory to another machine
+
+Copy two directories out of `<agentDir>/extensions/pi-accumemory/`: `memory/`
+(the databases and plugmem's `config.toml`) and `notes/` (the long note bodies).
+Copy them while pi is not running, or you will take a journal that has not been
+checkpointed. The database files themselves are portable as they are — plugmem
+writes a snapshot that is byte-identical on Linux, macOS, Windows and every
+build in between, so there is nothing to convert and no export step.
+
+What does **not** survive the trip is the binding. A project's memory is found
+by the project's absolute path, and on the other machine that path is different:
+`/home/you/code/app` is `/Users/you/code/app` or `C:/code/app`. The router finds
+no route, mints a new empty memory, and the one you carried over sits there
+intact and unreachable.
+
+`/longterm-rebind` is how you attach it. It lists every memory the workspace
+holds — id, folder name, how many facts, and the full path each one is bound to
+— putting the ones that need attention first: memories bound to nothing, then
+memories whose folder does not exist on this machine. You pick yours, confirm
+twice (once for "this memory here", once for "and the current one no longer"),
+and the memory is reopened on the spot. No restart.
+
+Two rules it will not bend:
+
+- **The folder's current memory has to be empty.** If it already holds facts,
+  binding another one would mean two sets of facts about one codebase with no
+  way to tell them apart afterwards, so it refuses and says how many facts are
+  in the way. Nothing is ever merged.
+- **Nothing is guessed.** No matching by folder name, no git remote — a wrong
+  guess joins two memories, and joined memories do not come apart. You are shown
+  what there is; the choice is yours.
+
+The memory that was displaced stays on disk, bound to nothing. You are asked
+whether to delete it (database, sidecars, notes and all), and if you say no it
+keeps showing up in the list, marked `NOT BOUND` with the path it used to have,
+so you can bind or delete it later.
 
 ## Switching it all off
 
