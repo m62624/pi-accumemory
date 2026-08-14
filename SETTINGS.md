@@ -107,7 +107,7 @@ definition of a topic change.
 |---|---|---|
 | `memory.recallTokenBudget` | `512` | how much of the context window one recall may spend |
 | `memory.recallK` | `0` | maximum facts per recall; `0` leaves the engine's own default |
-| `memory.graphDepth` | `null` | how far to follow entity links; `null` uses the engine's default |
+| `memory.graphDepth` | `null` | hops to follow along entity links; `null` uses the engine's own default, which is 2. Not a maximum: the walk is bounded by its entity and edge budgets, so a larger number costs more work rather than reaching further than allowed |
 | `memory.manifest` | `true` | the one-line inventory shown once at session start, so the model knows there is something to ask about |
 | `memory.queryMaxChars` | `600` | ceiling on the recall query. Lexical retrieval degrades as terms pile up, and a pasted wall of text drowns the words that identify the question |
 | `memory.output` | `"short"` | how much of what a memory tool did is printed **in your terminal**. See below |

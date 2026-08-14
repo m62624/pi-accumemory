@@ -85,8 +85,8 @@ ranked list:
 - **lexical** — BM25 over the fact text;
 - **semantic** — vector similarity, if an embedder is configured. Without one
   everything else still works, only wording has to match more closely;
-- **graph** — facts reachable through entity links, up to two hops, weighted
-  down by distance;
+- **graph** — facts reachable through entity links, two hops by default and
+  weighted down by distance. The depth is a setting, not a ceiling;
 - **temporal** — a time range, for "what happened that week".
 
 They are fused by reciprocal rank, `Σ w/(60 + rank)`, instead of by comparing
