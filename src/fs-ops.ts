@@ -22,6 +22,15 @@ export interface FileOps {
 	 */
 	removeDir(dir: string): Promise<boolean>;
 	exists(candidate: string): Promise<boolean>;
+	/**
+	 * The path with every symlink resolved, or the path itself when it will not
+	 * resolve (it does not exist, or the platform refuses).
+	 *
+	 * Used before a folder becomes an identity. Two names for one directory -
+	 * the link and the real thing - would otherwise be two projects with two
+	 * memories, and neither would know about the other.
+	 */
+	realPath(candidate: string): Promise<string>;
 	/** Immediate file names in `dir`, without paths. Empty when it is missing. */
 	listFiles(dir: string): Promise<string[]>;
 }

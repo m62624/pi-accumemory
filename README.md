@@ -83,8 +83,21 @@ asks for one pays for it, which is what the always-on instructions can never do.
 databases, resolved by the code that opened them - so the model answers "where do
 I change that" with a path rather than a convention.
 
-Commands: `/longterm-status`, `/longterm-rebind`, `/longterm-consolidate`,
-`/longterm-reembed`.
+Commands: `/longterm-status`, `/longterm-new`, `/longterm-rebind`,
+`/longterm-consolidate`, `/longterm-reembed`.
+
+## Which folder gets its own memory
+
+Walking up from where pi was started: a folder that already has a memory wins,
+and only if none does are the markers consulted — `.git` alone by default,
+`memory.project.markers` to say otherwise. So one memory can serve a whole tree
+(bind a monorepo root and every package inherits it) until a package is given
+its own with `/longterm-new`, which then wins by being nearer.
+
+A folder nobody claimed has no project memory, and the model is told what that
+costs: anything it stores instead goes to the shared memory about you and is
+shown in every other project. `/longterm-new` gives that folder a memory of its
+own — no marker required, no restart needed.
 
 ## Carrying it to another machine
 

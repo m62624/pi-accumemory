@@ -262,6 +262,74 @@ export default function accumemory(pi: ExtensionAPI): void {
 		},
 	});
 
+	/**
+	 * Closes the memory and opens it again, in place.
+	 *
+	 * What makes "no restart needed" true after a command changes which database
+	 * this folder uses. Closing first is not only tidiness: the old memory is
+	 * held under a writer lock, and nothing else can touch a file this session
+	 * still owns - which is also why deleting an orphan happens after this, not
+	 * before. Answers whether the memory came back up.
+	 */
+	const reopen = async (ctx: {
+		ui: { notify(message: string, level?: "info" | "warning" | "error"): void };
+	}): Promise<boolean> => {
+		idle.interrupt();
+		session?.close();
+		session = undefined;
+		try {
+			session = await boot();
+			return true;
+		} catch (error) {
+			startupError = `pi-accumemory could not reopen its memory: ${describe(error)}`;
+			ctx.ui.notify(startupError, "error");
+			return false;
+		}
+	};
+
+	pi.registerCommand("longterm-new", {
+		description:
+			"Give this folder a memory of its own, separate from any above it",
+		handler: async (_args, ctx) => {
+			await ready;
+			if (session === undefined) {
+				ctx.ui.notify(startupError ?? "Long-term memory is off.", "warning");
+				return;
+			}
+			const inherited = session.projectId;
+			const here = process.cwd();
+			// Asked even when the folder has nothing today: this decides where
+			// everything stored here from now on goes, and that is not a thing to
+			// do on one keystroke.
+			if (
+				ctx.hasUI &&
+				!(await ctx.ui.confirm(
+					"Give this folder its own memory?",
+					`${here} gets a new, empty memory.\n` +
+						(inherited === undefined
+							? "Facts about this folder are going to the shared memory about you today."
+							: `It is using memory ${inherited} (${session.projectRoot}) today, which keeps serving everything else under it.`),
+				))
+			) {
+				return;
+			}
+
+			const outcome = await session.newMemoryHere();
+			if (!outcome.ok) {
+				ctx.ui.notify(outcome.reason, "warning");
+				return;
+			}
+			if (!(await reopen(ctx))) return;
+			ctx.ui.notify(
+				`${outcome.folder} now has its own memory (${outcome.projectId}), and it is open. ` +
+					(outcome.replacedId === undefined
+						? "Facts about this folder no longer have to go to the shared memory."
+						: `Memory ${outcome.replacedId} is untouched and still serves the folders above.`),
+				"info",
+			);
+		},
+	});
+
 	pi.registerCommand("longterm-rebind", {
 		description:
 			"Bind a memory from elsewhere - a copied one, or one left unbound - to this folder",
@@ -341,18 +409,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 				return;
 			}
 
-			// Close before reopening: the old memory is held under a writer lock,
-			// and nothing may be bound to a database this session still owns.
-			idle.interrupt();
-			session.close();
-			session = undefined;
-			try {
-				session = await boot();
-			} catch (error) {
-				startupError = `pi-accumemory could not reopen its memory: ${describe(error)}`;
-				ctx.ui.notify(startupError, "error");
-				return;
-			}
+			if (!(await reopen(ctx))) return;
 
 			// The orphan is deleted through the NEW session, and only after it: by
 			// then nothing holds the file open, which is what makes the removal

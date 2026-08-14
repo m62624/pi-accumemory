@@ -46,6 +46,16 @@ export class FakeFs implements FileOps {
 		return removed;
 	}
 
+	/**
+	 * Symlinks in the fake are a map from a path to what it really is; anything
+	 * not in it is already real.
+	 */
+	readonly links = new Map<string, string>();
+
+	async realPath(candidate: string): Promise<string> {
+		return this.links.get(candidate) ?? candidate;
+	}
+
 	async exists(candidate: string): Promise<boolean> {
 		return this.files.has(candidate) || this.dirs.has(candidate);
 	}

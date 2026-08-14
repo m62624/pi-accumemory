@@ -199,6 +199,19 @@ both.
 | \`user\` | the person | in every project |
 | \`both\` | reading from the two at once | never written to |
 
+## A folder does not always have a project memory
+
+One memory can cover a whole tree - a subfolder uses the memory of the project
+above it - and some folders have none at all, because nothing marked them as a
+project and nobody asked. There, \`scope: "project"\` has nowhere to go, and the
+tools say so.
+
+That is not an invitation to put the fact in \`user\` instead. The shared memory
+is shown in EVERY project, so a fact about this codebase filed there is noise in
+all the others, permanently. Put only what is true about the PERSON in \`user\`,
+and tell them that \`/longterm-new\` gives this folder a memory of its own. It is
+their command; you cannot run it.
+
 ## Where the argument is optional, and where it is not
 
 - \`longterm_ask\` and \`longterm_remember\` - **optional**. Left out, it is

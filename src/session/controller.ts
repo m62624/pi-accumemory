@@ -1105,10 +1105,22 @@ export class MemoryController {
 		return pairs;
 	}
 
+	/**
+	 * What to say when this folder has no memory of its own.
+	 *
+	 * Naming the consequence rather than the condition. "Not a project" is a
+	 * statement about markers, which tells the model nothing it can act on -
+	 * whereas "anything you store here follows the user into every other
+	 * project" is the actual cost, and the command that fixes it is one line
+	 * away.
+	 */
 	private noProjectMessage(): string {
 		return (
-			"This directory is not a project, so there is no project memory here - only the " +
-			'shared memory about the user. Use scope: "user" for facts about them.'
+			"This folder has no memory of its own, so there is nothing to read or write " +
+			'as scope: "project". A fact stored as scope: "user" goes to the shared memory ' +
+			"and is shown in EVERY other project, so put only what is true about the person " +
+			"there. If this folder should have a memory of its own, the user can run " +
+			"/longterm-new - you cannot."
 		);
 	}
 

@@ -177,10 +177,10 @@ describe("tool behaviour", () => {
 			["longterm_note_update", { note_id: "n1", content: "y" }],
 			["longterm_note_delete", { note_id: "n1" }],
 		] as const) {
-			expect(await call(name, args), name).toMatch(/not a project/i);
+			expect(await call(name, args), name).toMatch(/no memory of its own/i);
 		}
 		expect(await call("longterm_remember", { text: "x" })).toMatch(
-			/not a project/i,
+			/no memory of its own/i,
 		);
 	});
 

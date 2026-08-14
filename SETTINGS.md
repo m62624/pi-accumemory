@@ -293,6 +293,50 @@ A revision is not reclaimable by any setting: `longterm_revise` closes the old
 version and keeps it, because that is what answers "what was true then". Roughly
 1 KB per fact, so a memory of ten thousand facts is about 13 MB.
 
+## Which folder gets its own memory — `memory.project.*`
+
+Two questions are asked, walking up from the folder pi was started in, and the
+order between them is the whole of it:
+
+1. **Does an ancestor already have a memory?** Then this folder uses it. That is
+   what makes one memory serve a whole tree: bind the root of a monorepo and
+   every package inside it inherits, until a package is given its own with
+   `/longterm-new` — which then wins, because it is nearer.
+2. **Does an ancestor look like a project root?** Only if the first question
+   found nothing. This is the guess, and it is configurable because it is a
+   guess.
+
+| key | default | what it does |
+|---|---|---|
+| `project.markers` | `[".git"]` | names that make a folder a project root. An empty list switches guessing off: then only folders somebody asked for have a memory |
+| `project.maxParents` | `16` | how many parent folders the search may climb. `0` looks at the working directory alone |
+
+`.git` alone by default, on purpose. The list used to name every ecosystem's
+manifest and got the granularity wrong in both directions at once: a package
+inside a repository quietly became a separate memory, and a folder with no
+manifest got none at all. Add what this machine actually uses — `Cargo.toml`,
+`go.mod`, `pyproject.toml` — and nothing you did not ask for appears.
+
+Your **home directory is never a project by marker**, whatever is in it. People
+keep a `.git` in `~` for their dotfiles, and without this rule every session
+outside a real project files its facts under a project named after your login. A
+memory you bound there yourself with `/longterm-new` is still honoured: the rule
+is about guessing, and you were not guessing.
+
+The search starts from the folder's **real path**, symlinks resolved. Reached
+through a link and through its own name, one directory would otherwise be two
+projects with two memories, neither aware of the other.
+
+### A folder with no memory — `/longterm-new`
+
+Nothing is stored about that folder as `scope: "project"`, and the model is told
+so: what it writes as `scope: "user"` goes to the shared memory and is shown in
+every other project, so only facts about *you* belong there. If the folder
+deserves a memory of its own, run `/longterm-new`. It asks you to confirm, mints
+an empty memory bound to exactly that folder, and reopens the memory in place —
+no restart. Whatever the folder was inheriting is untouched and keeps serving
+everything else under it.
+
 ## Cross-project questions — `memory.crossProject.enabled`
 
 Default `true`. Lets the model ask another project's memory — "how did I do auth
@@ -459,7 +503,8 @@ client names) but never weaker.
 | command | what it does |
 |---|---|
 | `/longterm-status` | which project this is, where the memory lives, what projects are registered |
-| `/longterm-rebind` | give this folder a different memory — see below |
+| `/longterm-new` | give this folder a memory of its own — see above |
+| `/longterm-rebind` | give this folder a memory that already exists — see below |
 | `/longterm-consolidate` | run the background pass now instead of waiting for a quiet period |
 | `/longterm-reembed` | rebuild every stored vector after an embedder change |
 

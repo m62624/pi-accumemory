@@ -11,6 +11,7 @@ import {
 	mkdir,
 	readdir,
 	readFile,
+	realpath,
 	rm,
 	stat,
 	writeFile,
@@ -62,6 +63,18 @@ export const nodeFileOps: FileOps = {
 		} catch (error) {
 			if (isMissing(error)) return false;
 			throw error;
+		}
+	},
+
+	async realPath(candidate: string): Promise<string> {
+		try {
+			return await realpath(candidate);
+		} catch {
+			// Not only ENOENT: a path can be unresolvable for permissions too,
+			// and neither is a reason to refuse to start. The unresolved path is
+			// still a usable identity - just possibly a second one for a folder
+			// that already had one.
+			return candidate;
 		}
 	},
 

@@ -28,7 +28,7 @@ import {
 } from "./layout.ts";
 import { NoteStore } from "./notes/store.ts";
 import { fromStoredPath, toStoredPath } from "./paths/path-codec.ts";
-import { detectProjectRoot } from "./project/detect.ts";
+import { locateProject } from "./project/detect.ts";
 import { ProjectRouter } from "./router/router.ts";
 import { MemoryController } from "./session/controller.ts";
 import { StumbleLog } from "./session/stumbles.ts";
@@ -99,6 +99,17 @@ export type RebindOutcome =
 	| { ok: true; projectId: string; from: string; releasedId?: string }
 	| { ok: false; reason: string };
 
+/** The answer to "give this folder its own memory". */
+export type NewMemoryOutcome =
+	| {
+			ok: true;
+			projectId: string;
+			folder: string;
+			/** The memory this folder was using until now, if it had one. */
+			replacedId?: string;
+	  }
+	| { ok: false; reason: string };
+
 /** The answer to "delete this memory". */
 export type DeleteOutcome =
 	| { ok: true; removed: string[] }
@@ -152,6 +163,16 @@ export interface StartedSession {
 	 * the routes.
 	 */
 	rebindTo(projectId: string): Promise<RebindOutcome>;
+	/**
+	 * Gives this exact folder a memory of its own.
+	 *
+	 * For the two cases detection cannot decide by itself: a folder with no
+	 * marker that is nonetheless a body of work, and a folder inside a project
+	 * whose facts should not be filed under it. Nothing is copied - the new
+	 * memory starts empty, and whatever the folder was inheriting stays where
+	 * it is, still serving everything else under it.
+	 */
+	newMemoryHere(): Promise<NewMemoryOutcome>;
 	/**
 	 * Deletes a memory: its database, its sidecars, its notes and its routes.
 	 *
@@ -229,11 +250,23 @@ export async function startSession(
 	}
 
 	const router = new ProjectRouter(common);
-	const projectRoot = await detectProjectRoot(cwd, {
+	// The folder's real path, which is what a memory is bound to. Resolved once
+	// here as well as inside the search, because everything that writes a route
+	// afterwards - `/longterm-new`, `/longterm-rebind` - has to agree with what
+	// the search found, and two spellings of one directory would be two
+	// projects.
+	const here = await fs.realPath(pathModule.resolve(cwd));
+	const locateOptions = {
 		fs,
 		flavour: pathModule,
+		markers: settings.memory.project.markers,
+		maxParents: settings.memory.project.maxParents,
+		hasMemory: async (dir: string) =>
+			(await router.projectAt(toStoredPath(dir, pathModule))) !== undefined,
 		...defined({ home: options.home }),
-	});
+	};
+	const located = await locateProject(cwd, locateOptions);
+	const projectRoot = located?.root;
 
 	let projectId: string | undefined;
 	let projectWriter: PlugmemStore | undefined;
@@ -672,6 +705,26 @@ export async function startSession(
 				projectId: target,
 				from: fromStoredPath(chosen.path, pathModule),
 				...defined({ releasedId: released }),
+			};
+		},
+		newMemoryHere: async () => {
+			const storedHere = toStoredPath(here, pathModule);
+			const existing = await router.projectAt(storedHere);
+			if (existing !== undefined) {
+				return {
+					ok: false as const,
+					reason: `This folder already has its own memory (${existing}).`,
+				};
+			}
+			// Minted at THIS path, so it outranks anything above it from now on:
+			// the search takes the nearest route, and this one is nearer than the
+			// folder it was inheriting from.
+			const created = await router.resolve(storedHere);
+			return {
+				ok: true as const,
+				projectId: created.projectId,
+				folder: here,
+				...defined({ replacedId: projectId }),
 			};
 		},
 		deleteMemory: async (doomed: string) => {

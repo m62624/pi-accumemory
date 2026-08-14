@@ -46,6 +46,8 @@ describe("the settings example in SETTINGS.md", () => {
 		);
 		for (const command of [
 			"/longterm-status",
+			"/longterm-new",
+			"/longterm-rebind",
 			"/longterm-consolidate",
 			"/longterm-reembed",
 		]) {

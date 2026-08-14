@@ -395,6 +395,18 @@ export class ProjectRouter {
 		return undefined;
 	}
 
+	/**
+	 * The project bound to exactly this path, if any.
+	 *
+	 * Exactly: no walking, no ancestors. Deciding how far up to look is the
+	 * caller's business (`project/detect.ts`), and the router's business is
+	 * answering about one folder without an opinion.
+	 */
+	async projectAt(storedPath: string): Promise<string | undefined> {
+		assertStored(storedPath);
+		return this.lookup(storedPath);
+	}
+
 	private async lookup(storedPath: string): Promise<string | undefined> {
 		return (await this.routeFact(storedPath))?.projectId;
 	}

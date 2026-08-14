@@ -588,5 +588,6 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 }
 
 const NO_PROJECT_NOTES =
-	"This directory is not a project, so it has no project notes. Use " +
-	'scope: "user" for a note about the person rather than the codebase.';
+	"This folder has no memory of its own, so it has no project notes either. Use " +
+	'scope: "user" for a note about the person rather than the codebase; if this ' +
+	"folder should have a memory of its own, the user can run /longterm-new.";

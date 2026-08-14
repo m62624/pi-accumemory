@@ -72,12 +72,18 @@ describe("MemoryController.revise", () => {
 	it("explains itself outside a project", async () => {
 		const { controller } = build({ withProject: false });
 		expect(await controller.revise(0, "x", "project")).toMatch(
-			/not a project/i,
+			/no memory of its own/i,
 		);
-		expect(await controller.forget([0], "project")).toMatch(/not a project/i);
-		expect(await controller.listTags()).toMatch(/not a project/i);
-		expect(await controller.link("a", "b", "c")).toMatch(/not a project/i);
-		expect(await controller.unlink("a", "b", "c")).toMatch(/not a project/i);
+		expect(await controller.forget([0], "project")).toMatch(
+			/no memory of its own/i,
+		);
+		expect(await controller.listTags()).toMatch(/no memory of its own/i);
+		expect(await controller.link("a", "b", "c")).toMatch(
+			/no memory of its own/i,
+		);
+		expect(await controller.unlink("a", "b", "c")).toMatch(
+			/no memory of its own/i,
+		);
 	});
 
 	it("refuses a write addressed to both memories at once", async () => {
@@ -483,7 +489,7 @@ describe("a write addressed at both memories", () => {
 		// real reason nor the next move.
 		const { controller } = build();
 		const answer = await controller.remember({ text: "a fact", scope: "both" });
-		expect(answer).not.toMatch(/not a project/i);
+		expect(answer).not.toMatch(/no memory of its own/i);
 		expect(answer).toMatch(/reads from both memories/i);
 		expect(answer).toContain('scope: "project"');
 		expect(answer).toContain('scope: "user"');
@@ -492,7 +498,7 @@ describe("a write addressed at both memories", () => {
 	it("still says 'not a project' when that is genuinely the reason", async () => {
 		const { controller } = build({ withProject: false });
 		expect(await controller.remember({ text: "a fact" })).toMatch(
-			/not a project/i,
+			/no memory of its own/i,
 		);
 	});
 });

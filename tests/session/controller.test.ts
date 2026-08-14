@@ -251,14 +251,18 @@ describe("MemoryController.ask", () => {
 		).not.toMatch(/already asked/i);
 	});
 
-	it("explains itself when the directory is not a project", async () => {
+	it("explains itself when this folder has no memory of its own", async () => {
+		// Naming the consequence, not the condition: "not a project" says
+		// nothing the model can act on, while "it follows the user everywhere"
+		// is the cost, and the command that fixes it is one line.
 		const { controller } = build({ withProject: false });
 		const answer = await controller.ask({
 			question: "anything",
 			scope: "project",
 		});
-		expect(answer).toMatch(/not a project/i);
+		expect(answer).toMatch(/no memory of its own/i);
 		expect(answer).toContain('scope: "user"');
+		expect(answer).toContain("/longterm-new");
 	});
 });
 
