@@ -23,6 +23,7 @@ describe("DEFAULT_PLUGMEM_CONFIG", () => {
 			"[workspace].dir",
 			"[workspace].max_open",
 			"[workspace].idle_timeout_ms",
+			"[server].workers",
 		]) {
 			expect(
 				DEFAULT_PLUGMEM_CONFIG,
@@ -30,6 +31,18 @@ describe("DEFAULT_PLUGMEM_CONFIG", () => {
 			).toContain(key);
 		}
 		expect(DEFAULT_PLUGMEM_CONFIG).toMatch(/does not move the databases/);
+	});
+
+	it("points at the full list rather than pretending to be it", () => {
+		// The file sets a handful of keys, and somebody reading it has no way to
+		// know that every other key plugmem takes works here too - unless it says
+		// so and links to where they are documented.
+		expect(DEFAULT_PLUGMEM_CONFIG).toContain(
+			"https://github.com/m62624/plugmem/blob/main/config.example.toml",
+		);
+		expect(DEFAULT_PLUGMEM_CONFIG).toMatch(
+			/every key plugmem\s+# takes works/i,
+		);
 	});
 
 	it("carries no credential, only the name of a variable", () => {

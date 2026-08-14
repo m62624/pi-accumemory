@@ -55,6 +55,21 @@ describe("the settings example in SETTINGS.md", () => {
 		}
 	});
 
+	it("links to plugmem's full key list instead of only naming it", async () => {
+		// The generated config.toml sets five or six keys. Without a link, a
+		// reader has no way to discover that every other key the engine takes
+		// works there too - and the engine's documentation lives in its own
+		// repository, not in this one.
+		const doc = await readFile(
+			new URL("../../SETTINGS.md", import.meta.url),
+			"utf8",
+		);
+		expect(doc).toContain(
+			"https://github.com/m62624/plugmem/blob/main/config.example.toml",
+		);
+		expect(doc).toMatch(/every key plugmem\s+takes works/i);
+	});
+
 	it("warns that a project instruction file replaces the global one", async () => {
 		// The failure is silent: someone adds a project file and their global
 		// text stops applying with no message anywhere.

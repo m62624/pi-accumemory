@@ -364,17 +364,34 @@ never edits it again, so:
 - delete it to get the defaults back on the next start;
 - if the path you named holds no file, one is written **there** and you are told
   so, because a path pointing at nothing is a typo far more often than a request;
-- what it contains is plugmem's business. It validates the file, reports what it
-  did not understand, and documents every key it takes in its own
-  `config.example.toml` and `SETTINGS.md`.
+- what it contains is plugmem's business. It validates the file and reports what
+  it did not understand.
 
-**Four keys in that file are read by nothing here**, so filling them in is wasted
-effort. `[database].path` and `[workspace].dir` do not decide where anything lives:
+### Everything that file takes
+
+The extension writes a short file with the handful of keys needed to get
+started. It is not the limit of what you may put there: **every key plugmem
+takes works, whether or not the generated file mentions it.** The full list,
+each with its type, default and one line of what it is for, is
+[`config.example.toml`](https://github.com/m62624/plugmem/blob/main/config.example.toml)
+in plugmem's repository. Copy the sections you want into your file and uncomment
+what you change.
+
+| section | what it governs |
+|---|---|
+| `[engine]` | vector width, size limits, what a write may hold |
+| `[embedder]` | the embedding service: endpoint, model, key variable, behaviour when it is down |
+| `[recall]` | how a question is answered: source weights, the recency discount and its half-life, graph depth and decay, the duplicate threshold |
+| `[index]` | the vector index: HNSW build width, and the vector count at which it stops scanning flat and builds the graph |
+| `[maintenance]` | reclaiming the bytes of forgotten facts, and what triggers a pass |
+
+**Five keys are read by nothing here**, so filling them in is wasted effort.
+`[database].path` and `[workspace].dir` do not decide where anything lives:
 every memory is opened by an explicit path, one database per project plus the
-shared one, and moving `config.toml` itself does not move them. `[workspace].max_open`
-and `[workspace].idle_timeout_ms` configure a pool this extension does not use; it
-opens each database itself. Everything else applies to every memory here: `[engine]`,
-`[embedder]`, and `[recall]` / `[maintenance]` if you add them.
+shared one, and moving `config.toml` itself does not move them.
+`[workspace].max_open` and `[workspace].idle_timeout_ms` configure a pool this
+extension does not use; it opens each database itself. `[server].workers` is
+read only by plugmem's MCP server, which is not what runs here.
 
 ## The embedder: in `config.toml`
 

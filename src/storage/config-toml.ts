@@ -12,10 +12,18 @@ export const DEFAULT_PLUGMEM_CONFIG = `# plugmem's configuration for pi-accumemo
 # never edits it afterwards - so delete it to get these defaults back.
 #
 # Only the keys below are set; everything else stays at plugmem's own tuned
-# defaults. The full list, with every default and what it is for, is in
-# plugmem's config.example.toml and SETTINGS.md.
+# defaults. This is not the limit of what you may put here: EVERY key plugmem
+# takes works, whether or not it is named below. The full list, each with its
+# type, default and what it is for:
 #
-# Four keys are read by nothing here, so setting them is wasted effort:
+#   https://github.com/m62624/plugmem/blob/main/config.example.toml
+#
+# What applies to every memory here: [engine] (vector width and size limits),
+# [embedder] (the embedding service), [recall] (how a question is answered:
+# source weights, recency discount, graph depth), [index] (the vector index) and
+# [maintenance] (reclaiming the bytes of forgotten facts).
+#
+# Five keys are read by nothing here, so setting them is wasted effort:
 #
 #   [database].path            - every memory is opened by an explicit path (one
 #   [workspace].dir              per project, plus the shared one), so neither of
@@ -23,9 +31,7 @@ export const DEFAULT_PLUGMEM_CONFIG = `# plugmem's configuration for pi-accumemo
 #                                file elsewhere does not move the databases.
 #   [workspace].max_open       - the workspace pool is not used at all: this
 #   [workspace].idle_timeout_ms  extension opens each database itself.
-#
-# Everything else applies to every memory here - [engine], [embedder], and
-# [recall] / [maintenance] if you add them.
+#   [server].workers           - read only by plugmem's MCP server.
 
 [engine]
 # Embedding width. It has to match what the model actually returns, and it is
