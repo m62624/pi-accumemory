@@ -6,7 +6,7 @@ Everything lives in one file:
 <agentDir>/extensions/pi-accumemory/settings.json
 ```
 
-`<agentDir>` is normally `~/.pi/agent`. The file is optional — with no file at
+`<agentDir>` is normally `~/.pi/agent`. The file is optional: with no file at
 all the defaults below apply, and the extension works.
 
 Every key is optional and is overlaid on the defaults. A **misspelled key** is
@@ -88,7 +88,7 @@ early or a day late.
 
 An invalid zone falls back to the host's rather than failing the session.
 
-## Reading — `memory.refresh.*`
+## Reading: `memory.refresh.*`
 
 These decide **when the memory block is recomputed**. Between those moments the
 prompt tail is byte-identical, which is what keeps the backend's prefix cache
@@ -100,7 +100,7 @@ intact.
 | `refresh.onCompact` | `true` | rebuild right after a compaction — the worst moment to hold a stale block, since the history it summarised is gone |
 | `refresh.askHintAfterIdleInferences` | `2` | after this many replies with no tool call at all, add a line reminding the model it can *ask* its memory. `0` disables it |
 
-A new user message always rebuilds the block. That is not a setting — it is the
+A new user message always rebuilds the block. That is not a setting. It is the
 definition of a topic change.
 
 | key | default | what it does |
@@ -112,12 +112,12 @@ definition of a topic change.
 | `memory.queryMaxChars` | `600` | ceiling on the recall query. Lexical retrieval degrades as terms pile up, and a pasted wall of text drowns the words that identify the question |
 | `memory.output` | `"short"` | how much of what a memory tool did is printed **in your terminal**. See below |
 
-## What you see when the memory is used — `memory.output`
+## What you see when the memory is used: `memory.output`
 
 This setting changes **only what you see**. The model is always told everything:
 which memory the fact landed in, under which entity, with which tags, and which
 tags that memory already uses. Each of those is something it cannot recover on
-its own and needs later — the scope to address the fact at all (the two memories
+its own and needs later: the scope to address the fact at all (the two memories
 number their facts separately), the entity because that is what the duplicate
 guard compares against, and the tag vocabulary because filtering matches tags
 exactly, so a second spelling splits the pile and neither half ever answers the
@@ -135,7 +135,7 @@ Asked this project (app): "why is the cache off" - 3 facts.
 Read the "scopes" page of longterm_about (2.6 kB).
 ```
 
-The text always comes from the database, never from the model — at the moment of
+The text always comes from the database, never from the model. At the moment of
 a deletion the model no longer has the fact in front of it, so anything it wrote
 there would be a guess.
 
@@ -149,7 +149,7 @@ The old name `memory.writeOutput` still works and is read as `memory.output`,
 with a warning at startup.
 
 
-## Writing — `memory.nudge.*`
+## Writing: `memory.nudge.*`
 
 There is **no** automatic "save a summary of every turn". The model stores what
 it judges durable; this is only the reminder that it has not stored anything in
@@ -162,7 +162,7 @@ a while.
 | `nudge.afterToolCalls` | `40` | tool calls with nothing stored before it appears. Separate from the message count because an agentic run grows in tool calls without growing in messages |
 | `nudge.cooldownTurns` | `15` | turns of silence after it fires. Without this it repeats every turn until something is written, which is how a hint becomes nagging the model learns to skip |
 
-## The background pass — `memory.consolidation.*`
+## The background pass: `memory.consolidation.*`
 
 When the session has been quiet for a while, a pass re-reads the transcript pi
 already wrote to disk and curates the memory from it: storing what was missed,
@@ -184,11 +184,11 @@ is already saved.
 | `consolidation.habits.afterSessions` | `3` | separate sessions a mistake must appear in before it is raised |
 | `consolidation.maintain` | `true` | reclaim the disk of forgotten facts at the end of a pass |
 
-## The second phase — `consolidation.review.*`
+## The second phase: `consolidation.review.*`
 
 The first phase reads the transcript, so it only ever weighs what was just
 discussed. That leaves a gap nothing else covers: a fact learned six months ago
-and never mentioned since is never reconsidered — not because it is still true,
+and never mentioned since is never reconsidered, not because it is still true,
 but because nothing puts it in front of anybody.
 
 So a pass has a second phase. It shows the model a window of the **oldest**
@@ -196,8 +196,8 @@ stored facts and asks one question of each: does this still earn its place. The
 window walks forward every pass and wraps at the end, so the whole memory is
 covered over time and nothing is shown twice in a row.
 
-It runs even when the transcript has nothing new — an idle machine is exactly
-when there is time for it — and it is a second agent run with its own step
+It runs even when the transcript has nothing new (an idle machine is exactly
+when there is time for it), and it is a second agent run with its own step
 budget, so the transcript phase cannot eat the budget before it starts.
 
 Nothing here deletes on a rule. The model decides; a fact is dropped only when
@@ -209,7 +209,7 @@ a reason, and the instruction says so.
 `sampleSize` is a floor, not the window. A fixed window does not survive a
 memory that has been running for a year: twelve facts a pass walks ten thousand
 of them in 830 passes, which at a handful of idle passes a day is most of a year
-to come round once — and the facts most likely to have gone stale are exactly
+to come round once, and the facts most likely to have gone stale are exactly
 the ones such a memory would review least.
 
 So the window grows with what the memory holds, to keep a full cycle at roughly
@@ -232,7 +232,7 @@ The window is also *fetched* as a window. The engine pages at 128 facts and
 answers a page in 0.3 ms; reading to the end of ten thousand facts costs 23 ms
 and builds ten thousand objects to throw all but the window away.
 
-## The third phase — `consolidation.habits.*`
+## The third phase: `consolidation.habits.*`
 
 The first two phases curate what the memory *knows*. This one is about how the
 model *uses* it.
@@ -240,22 +240,22 @@ model *uses* it.
 Inside one session, a failing call that is sent twice gets a sharper answer and a
 third gets a hard stop. None of that survives the session. So a model that opens
 five sessions in a row with the same wrong call is corrected five times and
-learns nothing — every correction dies with the process that issued it.
+learns nothing: every correction dies with the process that issued it.
 
-The runtime therefore names its own refusals — `id_without_scope`,
-`duplicate_refused`, and four others — and counts them in
+The runtime therefore names its own refusals (`id_without_scope`,
+`duplicate_refused`, and four others) and counts them in
 `state/stumbles.json`. It counts **sessions, not calls**: a kind is credited with
 a session only once it happens twice inside it, because one mistake is not a
 habit and twenty in one sitting are still one sitting.
 
 Above `afterSessions`, the pass shows the model that one habit and asks it to
-write **one** standing rule about it — a fact tagged `instruction` + `always`,
+write **one** standing rule about it: a fact tagged `instruction` + `always`,
 stored in the memory about the user, read at the top of every turn of every later
 session. One habit per pass, never four: each rule is charged to every future
 request.
 
 Nothing here writes anything. Deciding the habit does not deserve a rule is a
-legitimate outcome, and the phase says so — a phase that cannot end in "no" is a
+legitimate outcome, and the phase says so. A phase that cannot end in "no" is a
 machine for manufacturing rules.
 
 ### The ceiling is enforced, not requested
@@ -264,23 +264,23 @@ A standing rule is the only thing the model can write that costs it context
 forever. So `instructions.alwaysMax` and `instructions.alwaysMaxChars` are a
 **hard limit**: a rule that the always-block could not show is refused at the
 write, and the refusal lists the rules already standing so that replacing one is
-reachable. Ordinary facts are untouched by this — only the `instruction` +
+reachable. Ordinary facts are untouched by this: only the `instruction` +
 `always` pair.
 
 ### When a rule does not work
 
 A kind is marked covered once a rule has been written, so no second one is
-proposed for it — but counting continues. A habit that goes on after its rule is
+proposed for it, but counting continues. A habit that goes on after its rule is
 not a model that will not learn: it is a rule saying the wrong thing, or a tool
 behaving differently from its description. Writing a third commandment would
 spend permanent context to hide our own bug, so `/longterm-status` reports it to
 you instead.
 
-## Reclaiming disk — `consolidation.maintain`
+## Reclaiming disk: `consolidation.maintain`
 
 `longterm_forget` (and `longterm_forget_many`) sets a tombstone: the fact leaves recall at once, and its
-bytes leave at the next maintenance pass. Nothing schedules one — plugmem's own
-trigger is off by default — so without this a memory only ever grows. Measured
+bytes leave at the next maintenance pass. Nothing schedules one, and plugmem's own
+trigger is off by default, so without this a memory only ever grows. Measured
 on the engine at `dim: 768`:
 
 | | snapshot |
@@ -293,7 +293,7 @@ A revision is not reclaimable by any setting: `longterm_revise` closes the old
 version and keeps it, because that is what answers "what was true then". Roughly
 1 KB per fact, so a memory of ten thousand facts is about 13 MB.
 
-## Which folder gets its own memory — `memory.project.*`
+## Which folder gets its own memory: `memory.project.*`
 
 Two questions are asked, walking up from the folder pi was started in, and the
 order between them is the whole of it:
@@ -301,7 +301,7 @@ order between them is the whole of it:
 1. **Does an ancestor already have a memory?** Then this folder uses it. That is
    what makes one memory serve a whole tree: bind the root of a monorepo and
    every package inside it inherits, until a package is given its own with
-   `/longterm-new` — which then wins, because it is nearer.
+   `/longterm-new`, which then wins by being nearer.
 2. **Does an ancestor look like a project root?** Only if the first question
    found nothing. This is the guess, and it is configurable because it is a
    guess.
@@ -311,11 +311,11 @@ order between them is the whole of it:
 | `project.markers` | `[".git"]` | names that make a folder a project root. An empty list switches guessing off: then only folders somebody asked for have a memory |
 | `project.maxParents` | `16` | how many parent folders the search may climb. `0` looks at the working directory alone |
 
-`.git` alone by default, on purpose. The list used to name every ecosystem's
+`.git` alone by default, on purpose. The list used to name every language's
 manifest and got the granularity wrong in both directions at once: a package
-inside a repository quietly became a separate memory, and a folder with no
-manifest got none at all. Add what this machine actually uses — `Cargo.toml`,
-`go.mod`, `pyproject.toml` — and nothing you did not ask for appears.
+inside a repository became a separate memory without telling you, and a folder with no
+manifest got none at all. Add what this machine actually uses (`Cargo.toml`,
+`go.mod`, `pyproject.toml`) and nothing you did not ask for appears.
 
 Your **home directory is never a project by marker**, whatever is in it. People
 keep a `.git` in `~` for their dotfiles, and without this rule every session
@@ -327,27 +327,27 @@ The search starts from the folder's **real path**, symlinks resolved. Reached
 through a link and through its own name, one directory would otherwise be two
 projects with two memories, neither aware of the other.
 
-### A folder with no memory — `/longterm-new`
+### A folder with no memory: `/longterm-new`
 
 Nothing is stored about that folder as `scope: "project"`, and the model is told
 so: what it writes as `scope: "user"` goes to the shared memory and is shown in
 every other project, so only facts about *you* belong there. If the folder
 deserves a memory of its own, run `/longterm-new`. It asks you to confirm, mints
-an empty memory bound to exactly that folder, and reopens the memory in place —
+an empty memory bound to exactly that folder, and reopens the memory in place, with
 no restart. Whatever the folder was inheriting is untouched and keeps serving
 everything else under it.
 
-## Cross-project questions — `memory.crossProject.enabled`
+## Cross-project questions: `memory.crossProject.enabled`
 
-Default `true`. Lets the model ask another project's memory — "how did I do auth
-in api?" — by name. The other project's database is opened read-only, which
+Default `true`. Lets the model ask another project's memory by name: "how did I do auth
+in api?". The other project's database is opened read-only, which
 takes a shared lock, so the question is safe to ask while somebody is working in
 that project.
 
-## The engine — `memory.plugmemConfig`
+## The engine: `memory.plugmemConfig`
 
-Everything about the storage engine — the embedder, retrieval weights,
-maintenance — is configured in **plugmem's own `config.toml`**, not here. This
+Everything about the storage engine (the embedder, retrieval weights,
+maintenance) is configured in **plugmem's own `config.toml`**, not here. This
 setting says only where that file is:
 
 ```
@@ -359,7 +359,7 @@ extension's own directory, not from wherever you happened to start Pi; a leading
 `~` is your home directory.
 
 The file is **yours**. The extension writes it once, when it is not there, and
-never edits it again — so:
+never edits it again, so:
 
 - delete it to get the defaults back on the next start;
 - if the path you named holds no file, one is written **there** and you are told
@@ -370,13 +370,13 @@ never edits it again — so:
 
 **Four keys in that file are read by nothing here**, so filling them in is wasted
 effort. `[database].path` and `[workspace].dir` do not decide where anything lives:
-every memory is opened by an explicit path — one database per project, plus the
-shared one — and moving `config.toml` itself does not move them. `[workspace].max_open`
+every memory is opened by an explicit path, one database per project plus the
+shared one, and moving `config.toml` itself does not move them. `[workspace].max_open`
 and `[workspace].idle_timeout_ms` configure a pool this extension does not use; it
 opens each database itself. Everything else applies to every memory here: `[engine]`,
 `[embedder]`, and `[recall]` / `[maintenance]` if you add them.
 
-## The embedder — in `config.toml`
+## The embedder: in `config.toml`
 
 **Off by default, and recommended on.** Off, memory answers only when the
 question happens to share words with the stored fact: there is no stemming, so a
@@ -400,15 +400,15 @@ model = "bge-m3"
 on_error = "degrade"
 ```
 
-Pick a **multilingual** model if you work in more than one language — one memory
+Pick a **multilingual** model if you work in more than one language. One memory
 holds them all, and an English-only model (`nomic-embed-text`) answers poorly on
 anything else. `multilingual-e5-small` is a lighter alternative to `bge-m3`.
 
 `api_key_env` is the **name of an environment variable** holding a bearer token,
-never the token itself. Nothing in this extension ever stores a credential — it
+never the token itself. Nothing in this extension ever stores a credential: it
 does not even read that file.
 
-### When the embedding service is down — `on_error`
+### When the embedding service is down: `on_error`
 
 `degrade` (what the generated file sets) keeps the memory working through an
 outage: the fact is stored and the question is answered **without** the vector,
@@ -416,7 +416,7 @@ and the embedder suspends itself so the next call does not pay the same timeout
 again. It retries by itself, and the facts written meanwhile get their vectors at
 the next start, or from `/longterm-reembed`.
 
-`fail` refuses the call instead. Nothing is damaged and nothing is lost — but the
+`fail` refuses the call instead. Nothing is damaged and nothing is lost, but the
 model is told the memory would not answer, and it is told to pass that on to you
 rather than retry.
 
@@ -434,7 +434,7 @@ them. What that looks like, measured against the engine:
 | a lookup or a save **with text** | fails: `vector space mismatch` |
 | tag/graph lookups, listing, exporting, forgetting | keep working |
 
-Nothing is lost and nothing is silently wrong — but the two things this
+Nothing is lost and nothing is silently wrong, but the two things this
 extension is built on stop, and you would only find out at the first lookup.
 
 So `memory.autoReembed` is **on by default** and the extension repairs this
@@ -443,7 +443,7 @@ itself:
 - at session start it checks the shared memory and this project's, and rebuilds
   whichever is out of step before anything asks a question;
 - another project's memory is repaired the moment a cross-project question
-  needs it — a read-only handle cannot rebuild itself, so this takes the writer
+  needs it: a read-only handle cannot rebuild itself, so this takes the writer
   lock briefly and says so plainly if somebody else is holding it;
 - switching the embedder **on** over an older memory is caught too. That case
   errors at nothing at all: the old facts simply have no vectors, so
@@ -452,7 +452,7 @@ itself:
 
 Set `memory.autoReembed: false` to be told instead of repaired; the rebuild is then one
 `/longterm-reembed` away. That command always walks **every** memory in the
-workspace — a half-rebuilt workspace answers from two different vector spaces
+workspace, because a half-rebuilt workspace answers from two different vector spaces
 with nothing reporting it.
 
 A rebuild is resumable: each fact is replaced in place, so an interrupted one
@@ -460,7 +460,7 @@ keeps what it finished and running it again completes the job.
 
 ### `space_id`
 
-Left out (the default) plugmem derives the space from the model name — so
+Left out (the default) plugmem derives the space from the model name, so
 changing the model changes the space, which is what you want. Pin it to a name
 of your own only when you are swapping endpoints or aliases for the **same**
 model and do not want a rebuild.
@@ -469,7 +469,7 @@ model and do not want a rebuild.
 
 The extension ships instruction text in
 `<agentDir>/extensions/pi-accumemory/instructions/defaults/`. Those files are
-**ours** and are rewritten whenever they differ from the shipped version — edit
+**ours** and are rewritten whenever they differ from the shipped version. Edit
 one and your change disappears on the next upgrade.
 
 To add your own, create the matching file under `instructions/append/`. It is
@@ -490,12 +490,12 @@ A project can carry its own, committed with the code:
 <projectRoot>/.pi/pi-accumemory/instructions/append/<key>.md
 ```
 
-**A project file replaces the global one for that key — they are not merged.**
-Worth reading twice: create a project `memory.md` and your global `memory.md`
+**A project file replaces the global one for that key. They are not merged.**
+Read that twice: create a project `memory.md` and your global `memory.md`
 silently stops applying. If you want both, paste the global text in.
 
 `secrets` is special. It is always included, always composed **last**, below
-everything you added — so an append can make it stricter (your internal URLs,
+everything you added, so an append can make it stricter (your internal URLs,
 client names) but never weaker.
 
 ## Commands
@@ -513,7 +513,7 @@ client names) but never weaker.
 Copy two directories out of `<agentDir>/extensions/pi-accumemory/`: `memory/`
 (the databases and plugmem's `config.toml`) and `notes/` (the long note bodies).
 Copy them while pi is not running, or you will take a journal that has not been
-checkpointed. The database files themselves are portable as they are — plugmem
+checkpointed. The database files themselves are portable as they are: plugmem
 writes a snapshot that is byte-identical on Linux, macOS, Windows and every
 build in between, so there is nothing to convert and no export step.
 
@@ -524,8 +524,8 @@ no route, mints a new empty memory, and the one you carried over sits there
 intact and unreachable.
 
 `/longterm-rebind` is how you attach it. It lists every memory the workspace
-holds — id, folder name, how many facts, and the full path each one is bound to
-— putting the ones that need attention first: memories bound to nothing, then
+holds: id, folder name, how many facts, and the full path each one is bound to.
+The ones that need attention come first: memories bound to nothing, then
 memories whose folder does not exist on this machine. You pick yours, confirm
 twice (once for "this memory here", once for "and the current one no longer"),
 and the memory is reopened on the spot. No restart.
@@ -536,7 +536,7 @@ Two rules it will not bend:
   binding another one would mean two sets of facts about one codebase with no
   way to tell them apart afterwards, so it refuses and says how many facts are
   in the way. Nothing is ever merged.
-- **Nothing is guessed.** No matching by folder name, no git remote — a wrong
+- **Nothing is guessed.** No matching by folder name, no git remote. A wrong
   guess joins two memories, and joined memories do not come apart. You are shown
   what there is; the choice is yours.
 
@@ -563,7 +563,7 @@ The databases are plain plugmem files:
 <agentDir>/extensions/pi-accumemory/memory/db/p_<projectId>.plugmem
 ```
 
-With `plugmem-cli` installed you can read them directly — it opens read-only, so
+With `plugmem-cli` installed you can read them directly, and it opens read-only, so
 this is safe while pi is running:
 
 ```sh
