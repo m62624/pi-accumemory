@@ -6,53 +6,46 @@
  * holds the two in sync.
  */
 
-/**
- * The embedder as `settings.json` used to describe it - kept only to carry an
- * existing installation over.
- *
- * plugmem is configured in its own `config.toml` now (`memory.plugmemConfig`
- * says where). These keys are still parsed, and they are still honoured exactly
- * once: to write that file the first time, so an upgrade does not silently turn
- * a working embedder off. Nothing reads them afterwards.
- */
-export interface EmbedderSettings {
-	/**
-	 * Off by default so a machine with no embedding service still works. It is
-	 * *recommended* on, though: without vectors a question phrased differently
-	 * from the stored fact never finds it, and asking the memory in your own
-	 * words is the point of the whole extension.
-	 */
-	enabled: boolean;
-	url: string;
-	/** Multilingual on purpose — one memory holds Russian and English. */
-	model: string;
-	/** Name of the environment variable holding the key, never the key itself. */
-	apiKeyEnv: string | null;
-	/**
-	 * The semantic space the stored vectors belong to.
-	 *
-	 * `null` lets plugmem use its own default, which is the model name - so
-	 * changing the model changes the space, which is usually what you want.
-	 * Pin it to a name of your own when you are swapping endpoints or aliases
-	 * for the SAME model and do not want a rebuild.
-	 */
-	spaceId: string | null;
-	/**
-	 * Embedding width, written into the database at creation.
-	 *
-	 * Changing it does NOT stop the database opening - measured, not assumed -
-	 * but the stored vectors then belong to a width nothing else uses, so a
-	 * rebuild is still needed. With `autoReembed` on, that happens by itself.
-	 */
-	dim: number;
-}
-
 export interface RefreshSettings {
 	/** Tool calls before the memory block is recomputed mid-loop; 0 disables. */
 	afterToolCalls: number;
 	onCompact: boolean;
 	/** Consecutive tool-less inferences before hinting that memory can be asked. */
 	askHintAfterIdleInferences: number;
+}
+
+/**
+ * How a folder is matched to a memory.
+ *
+ * Two questions are asked walking up from the working directory: does an
+ * ancestor already have a memory, and does one look like a project root. The
+ * first has priority - a memory somebody bound is a statement, a file lying in
+ * a folder is a guess - and this is where the guessing part is configured.
+ */
+export interface ProjectSettings {
+	/**
+	 * File or directory names that make a folder a project root.
+	 *
+	 * Just `.git` by default. The old list tried to name every ecosystem's
+	 * manifest and got the granularity wrong in both directions: a package
+	 * inside a repository became its own memory, and a folder with no manifest
+	 * got none at all. Whoever knows which is which is the person working
+	 * there, so the list is theirs - add `Cargo.toml`, `go.mod`, whatever this
+	 * machine actually uses.
+	 *
+	 * An empty list switches detection off entirely: then a folder has a memory
+	 * only if somebody asked for one with `/longterm-new`.
+	 */
+	markers: string[];
+	/**
+	 * How many parent folders the walk may climb before giving up.
+	 *
+	 * A bound rather than "up to the filesystem root", because both walks are
+	 * per-session work on someone's machine, and a session started in a deeply
+	 * nested directory should not pay for a hundred lookups to learn there is
+	 * nothing above it. `0` looks at the working directory alone.
+	 */
+	maxParents: number;
 }
 
 export interface NudgeSettings {
@@ -179,8 +172,7 @@ export interface Settings {
 		 */
 		autoReembed: boolean;
 		refresh: RefreshSettings;
-		/** @deprecated Carried over into `config.toml` once, then unused. */
-		embedder: EmbedderSettings;
+		project: ProjectSettings;
 		instructions: { alwaysMax: number; alwaysMaxChars: number };
 		notes: { overviewMaxChars: number };
 		nudge: NudgeSettings;
@@ -220,13 +212,9 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 			onCompact: true,
 			askHintAfterIdleInferences: 2,
 		},
-		embedder: {
-			enabled: false,
-			url: "http://localhost:11434/v1/embeddings",
-			model: "bge-m3",
-			apiKeyEnv: null,
-			spaceId: null,
-			dim: 1024,
+		project: {
+			markers: [".git"],
+			maxParents: 16,
 		},
 		instructions: {
 			alwaysMax: 8,

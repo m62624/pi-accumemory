@@ -11,7 +11,6 @@
 
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "../../src/settings/defaults.ts";
 import {
 	ensurePlugmemConfig,
 	resolveConfigPath,
@@ -107,55 +106,6 @@ describe("ensurePlugmemConfig", () => {
 		expect(result.notice).toContain("/etc/plugmem.toml");
 		// Written where they pointed, so the next edit lands in the right file.
 		expect(fs.files.has("/etc/plugmem.toml")).toBe(true);
-	});
-
-	it("carries an older installation's embedder into the file", async () => {
-		const fs = new FakeFs();
-		const result = await ensurePlugmemConfig({
-			...base(fs),
-			legacy: {
-				...DEFAULT_SETTINGS.memory.embedder,
-				enabled: true,
-				model: "bge-m3",
-				dim: 1024,
-			},
-		});
-		const written = fs.files.get(DEFAULT_PATH) ?? "";
-		expect(written).toContain("enabled = true");
-		expect(written).toContain('model = "bge-m3"');
-		expect(written).toContain("dim = 1024");
-		expect(result.notice).toMatch(/moved to/i);
-	});
-
-	it("does not migrate over a file that already exists", async () => {
-		// The file wins - it is the one plugmem reads - and the settings that no
-		// longer do anything are named rather than left to be edited in vain.
-		const fs = new FakeFs();
-		await fs.writeFile(DEFAULT_PATH, "[engine]\ndim = 7\n");
-		const result = await ensurePlugmemConfig({
-			...base(fs),
-			legacy: { ...DEFAULT_SETTINGS.memory.embedder, enabled: true },
-		});
-		expect(fs.files.get(DEFAULT_PATH)).toBe("[engine]\ndim = 7\n");
-		expect(result.notice).toMatch(/memory\.embedder/);
-		expect(result.notice).toContain(DEFAULT_PATH);
-	});
-
-	it("refuses to migrate an embedder plugmem would refuse", async () => {
-		// Those values came out of a file the user wrote, so the complaint names
-		// their key rather than arriving later as an opinion about TOML.
-		const fs = new FakeFs();
-		await expect(
-			ensurePlugmemConfig({
-				...base(fs),
-				legacy: {
-					...DEFAULT_SETTINGS.memory.embedder,
-					enabled: true,
-					url: "",
-				},
-			}),
-		).rejects.toThrow(/memory\.embedder\.url/);
-		expect(fs.files.has(DEFAULT_PATH)).toBe(false);
 	});
 
 	it("works on Windows paths too", async () => {

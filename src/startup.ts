@@ -41,7 +41,6 @@ import {
 	type LeasedWriter,
 } from "./storage/common-store.ts";
 import { ensurePlugmemConfig } from "./storage/config-file.ts";
-import { embedderWasConfigured } from "./storage/config-toml.ts";
 import { syncVectorSpace } from "./storage/embedder-sync.ts";
 import { isLocked } from "./storage/errors.ts";
 import {
@@ -183,10 +182,8 @@ export async function startSession(
 	const closers: (() => void)[] = [];
 
 	await fs.mkdir(layout.memoryDir);
-	// plugmem's own file, and the user's. We put one there when there is none -
-	// carrying over the old `memory.embedder` settings if this installation
-	// still has them - and never touch it again.
-	const legacy = settings.memory.embedder;
+	// plugmem's own file, and the user's. We put one there when there is none,
+	// and never touch it again.
 	const configFile = await ensurePlugmemConfig({
 		fs,
 		flavour: pathModule,
@@ -194,7 +191,6 @@ export async function startSession(
 		defaultPath: layout.configToml,
 		configured: settings.memory.plugmemConfig,
 		...defined({ home: options.home }),
-		...(embedderWasConfigured(legacy) ? { legacy } : {}),
 	});
 	if (configFile.notice !== "") notices.push(configFile.notice);
 	const openOptions = { config: configFile.path };

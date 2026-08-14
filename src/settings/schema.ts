@@ -21,6 +21,8 @@ type FieldSpec =
 	| { kind: "count"; nullable?: boolean }
 	/** One of a fixed set of words; anything else names the allowed ones. */
 	| { kind: "choice"; of: readonly string[] }
+	/** A list of non-empty strings; the empty list is a legitimate value. */
+	| { kind: "strings" }
 	| { kind: "section"; fields: Record<string, FieldSpec> };
 
 const COUNT: FieldSpec = { kind: "count" };
@@ -48,16 +50,9 @@ const SCHEMA: Record<string, FieldSpec> = {
 					askHintAfterIdleInferences: COUNT,
 				},
 			},
-			embedder: {
+			project: {
 				kind: "section",
-				fields: {
-					enabled: BOOL,
-					url: { kind: "string" },
-					model: { kind: "string" },
-					apiKeyEnv: { kind: "string", nullable: true },
-					spaceId: { kind: "string", nullable: true },
-					dim: COUNT,
-				},
+				fields: { markers: { kind: "strings" }, maxParents: COUNT },
 			},
 			instructions: {
 				kind: "section",
@@ -134,14 +129,11 @@ export function parseSettings(raw: unknown): ParsedSettings {
 /**
  * Old dotted names, and what they are called now.
  *
- * The new name is a full path, not a sibling key: `autoReembed` left the
- * embedder section when the rest of that section moved into plugmem's own
- * `config.toml`, and a rename that could only rename within one level would
- * have had to drop it.
+ * The new name is a full path rather than a sibling key, so a setting can move
+ * between sections and still be honoured.
  */
 const RENAMED: Record<string, string> = {
 	"memory.writeOutput": "memory.output",
-	"memory.embedder.autoReembed": "memory.autoReembed",
 };
 
 /** The spec a dotted path names, or `undefined` when nothing does. */
@@ -244,6 +236,23 @@ function checkScalar(dotted: string, value: unknown, spec: FieldSpec): unknown {
 				);
 			}
 			return value;
+		case "strings": {
+			// Named one by one rather than "must be an array of strings": the
+			// mistake here is nearly always one bad entry among good ones, and
+			// finding it by eye in a list of twelve is the slow part.
+			if (!Array.isArray(value)) {
+				throw new SettingsError(`settings: "${dotted}" must be an array`);
+			}
+			const bad = value.findIndex(
+				(entry) => typeof entry !== "string" || entry.trim() === "",
+			);
+			if (bad !== -1) {
+				throw new SettingsError(
+					`settings: "${dotted}[${bad}]" must be a non-empty string`,
+				);
+			}
+			return [...(value as string[])];
+		}
 		case "choice":
 			// Named rather than "invalid value": a typo in one of three words is
 			// fixed in a second when the three are printed, and guessed at for

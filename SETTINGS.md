@@ -35,6 +35,10 @@ day it does not.
 			"onCompact": true,
 			"askHintAfterIdleInferences": 2
 		},
+		"project": {
+			"markers": [".git"],
+			"maxParents": 16
+		},
 		"instructions": {
 			"alwaysMax": 8,
 			"alwaysMaxChars": 1200
@@ -327,10 +331,6 @@ shared one — and moving `config.toml` itself does not move them. `[workspace].
 and `[workspace].idle_timeout_ms` configure a pool this extension does not use; it
 opens each database itself. Everything else applies to every memory here: `[engine]`,
 `[embedder]`, and `[recall]` / `[maintenance]` if you add them.
-
-> **Upgrading?** If your `settings.json` still has a `memory.embedder` section,
-> it is written into `config.toml` once, on the next start, and you are told
-> where it went. After that the section does nothing and can be deleted.
 
 ## The embedder — in `config.toml`
 

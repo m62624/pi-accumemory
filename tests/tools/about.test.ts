@@ -150,11 +150,6 @@ describe("current_settings", () => {
 		// who would tell the user about it.
 		const page = readAbout(desk(), "current_settings");
 		for (const leaf of leafKeys(DEFAULT_SETTINGS.memory)) {
-			// `embedder.*` is the exception, and deliberately: those keys are
-			// only read once, to move an older installation's settings into
-			// plugmem's config.toml. Printing them would tell the model about a
-			// configuration nothing consults.
-			if (leaf.startsWith("embedder.")) continue;
 			expect(page, `${leaf} is missing from current_settings`).toContain(leaf);
 		}
 	});

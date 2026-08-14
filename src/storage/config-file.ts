@@ -15,12 +15,7 @@
  */
 
 import type { FileOps } from "../fs-ops.ts";
-import type { EmbedderSettings } from "../settings/defaults.ts";
-import {
-	buildPlugmemConfig,
-	DEFAULT_PLUGMEM_CONFIG,
-	validateEmbedder,
-} from "./config-toml.ts";
+import { DEFAULT_PLUGMEM_CONFIG } from "./config-toml.ts";
 
 /** The `node:path` surface this needs; `path.win32` or `path.posix`. */
 export interface PathFlavour {
@@ -41,13 +36,6 @@ export interface ConfigFileOptions {
 	configured: string | null;
 	/** Expands a leading `~`; injected so the rule is testable. */
 	home?: string;
-	/**
-	 * The pre-0.13 `memory.embedder` settings, when the user still has them.
-	 *
-	 * Used to write the file the first time, so an upgrade keeps the embedder
-	 * that was already working instead of silently switching it off.
-	 */
-	legacy?: EmbedderSettings;
 }
 
 export interface ConfigFile {
@@ -102,41 +90,16 @@ export async function ensurePlugmemConfig(
 	const path = resolveConfigPath(options);
 	const named = (options.configured?.trim() ?? "") !== "";
 
-	if (await fs.exists(path)) {
-		return {
-			path,
-			created: false,
-			// The file wins, and it has to: it is the one plugmem reads. Saying
-			// so is what stops the user editing the settings that are no longer
-			// consulted.
-			notice:
-				options.legacy === undefined
-					? ""
-					: `Your settings still have "memory.embedder", but the embedder is configured in ${path} now, ` +
-						"and that file is what plugmem reads. You can delete the section.",
-		};
-	}
+	if (await fs.exists(path)) return { path, created: false, notice: "" };
 
-	const legacy = options.legacy;
-	const migrating = legacy !== undefined;
-	// Checked before it is written, not after: these values came out of a file
-	// the user typed, so the complaint should name `memory.embedder.url` rather
-	// than arrive later as plugmem's opinion of a TOML file nobody has seen yet.
-	if (legacy !== undefined) validateEmbedder(legacy);
 	await fs.mkdir(flavour.dirname(path));
-	await fs.writeFile(
-		path,
-		migrating ? buildPlugmemConfig(legacy) : DEFAULT_PLUGMEM_CONFIG,
-	);
+	await fs.writeFile(path, DEFAULT_PLUGMEM_CONFIG);
 	return {
 		path,
 		created: true,
-		notice: migrating
-			? `Your "memory.embedder" settings moved to ${path}, which is where plugmem is configured now. ` +
-				"You can delete the section from settings.json; edit the file for anything else the engine takes."
-			: named
-				? `There was no config file at ${path}, so a default one was written there. ` +
-					"Edit it to configure plugmem."
-				: "",
+		notice: named
+			? `There was no config file at ${path}, so a default one was written there. ` +
+				"Edit it to configure plugmem."
+			: "",
 	};
 }

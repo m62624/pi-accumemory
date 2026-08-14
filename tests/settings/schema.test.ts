@@ -80,30 +80,40 @@ describe("parseSettings", () => {
 		expect(() => parseSettings("nope")).toThrow(/object/i);
 	});
 
-	it("keeps the legacy embedder off by default, with a multilingual model", () => {
-		// These keys no longer configure anything - plugmem's config.toml does -
-		// but they are still what an upgrade writes into that file the first
-		// time, so the defaults still have to be the ones worth writing.
-		expect(DEFAULT_SETTINGS.memory.embedder.enabled).toBe(false);
-		expect(DEFAULT_SETTINGS.memory.embedder.model).toBe("bge-m3");
-		expect(DEFAULT_SETTINGS.memory.embedder.dim).toBeGreaterThan(0);
-	});
-
-	it("carries autoReembed out of the embedder section it used to live in", () => {
-		// A rename across two levels: dropping it would silently return the
-		// setting to its default, and the user would find out by watching a
-		// rebuild they had switched off.
-		const { settings, warnings } = parseSettings({
-			memory: { embedder: { autoReembed: false } },
+	it("reports the retired embedder section as an unknown key", () => {
+		// It configured the embedder before plugmem's own config.toml did. There
+		// was never a release with it, so there is nothing to migrate - but a
+		// key nothing claims is still worth naming rather than swallowing.
+		const { warnings } = parseSettings({
+			memory: { embedder: { enabled: true } },
 		});
-		expect(settings.memory.autoReembed).toBe(false);
-		expect(warnings.join(" ")).toContain("memory.autoReembed");
+		expect(warnings.join(" ")).toContain("memory.embedder");
 	});
 
-	it("still checks the type of a value arriving under an old name", () => {
+	it("takes a marker list and a walk limit for project detection", () => {
+		const { settings } = parseSettings({
+			memory: { project: { markers: [".git", "Cargo.toml"], maxParents: 4 } },
+		});
+		expect(settings.memory.project.markers).toEqual([".git", "Cargo.toml"]);
+		expect(settings.memory.project.maxParents).toBe(4);
+	});
+
+	it("names the offending entry when one marker in a list is wrong", () => {
+		// One bad entry among good ones is the usual mistake, and finding it by
+		// eye in a list of twelve is the slow part.
 		expect(() =>
-			parseSettings({ memory: { embedder: { autoReembed: "no" } } }),
-		).toThrow(/boolean/i);
+			parseSettings({ memory: { project: { markers: [".git", 7] } } }),
+		).toThrow(/markers\[1\]/);
+		expect(() =>
+			parseSettings({ memory: { project: { markers: ".git" } } }),
+		).toThrow(/must be an array/i);
+	});
+
+	it("takes an empty marker list, which switches detection off", () => {
+		expect(
+			parseSettings({ memory: { project: { markers: [] } } }).settings.memory
+				.project.markers,
+		).toEqual([]);
 	});
 
 	it("takes the engine config path, and takes null for the default place", () => {

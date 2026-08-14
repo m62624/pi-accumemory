@@ -50,16 +50,19 @@ describe("startSession", () => {
 		await mkdir(path.join(project, ".git"), { recursive: true });
 	});
 
-	/** Settings pointing at a stub embedding service started on demand. */
+	/**
+	 * Puts a config file naming a stub embedding service where the next session
+	 * will read it. Returns the settings unchanged - the engine's configuration
+	 * is not in settings.json at all.
+	 */
 	async function embedding(): Promise<Settings> {
 		embedder ??= await startStubEmbedder();
-		const service = embedder;
-		return settingsWith((draft) => {
-			draft.memory.embedder.enabled = true;
-			draft.memory.embedder.url = service.url;
-			draft.memory.embedder.model = "stub";
-			draft.memory.embedder.dim = service.dim;
+		await writeEmbedderConfig(extensionLayout(agentDir, path).configToml, {
+			url: embedder.url,
+			model: "stub",
+			dim: embedder.dim,
 		});
+		return DEFAULT_SETTINGS;
 	}
 
 	afterEach(async () => {
@@ -270,30 +273,6 @@ describe("startSession", () => {
 		expect(await nodeFileOps.readFile(layout.configToml)).toBe(before);
 	});
 
-	it("moves an older installation's embedder settings into the file", async () => {
-		// The upgrade path: settings.json still describes an embedder, there is
-		// no config.toml yet, and the embedder must not silently switch off.
-		const service = await startStubEmbedder();
-		embedder = service;
-		const session = await start(
-			project,
-			settingsWith((draft) => {
-				draft.memory.embedder.enabled = true;
-				draft.memory.embedder.url = service.url;
-				draft.memory.embedder.model = "stub";
-				draft.memory.embedder.dim = service.dim;
-			}),
-		);
-		const written =
-			(await nodeFileOps.readFile(
-				extensionLayout(agentDir, path).configToml,
-			)) ?? "";
-		expect(written).toContain("enabled = true");
-		expect(written).toContain('on_error = "degrade"');
-		expect(session.notices.join(" ")).toMatch(/moved to/i);
-		expect(session.embedderState()).toBe("active");
-	});
-
 	it("still has a consolidation pass outside a project", async () => {
 		// It used to refuse, on the reasoning that there was nothing to resume
 		// from - which was simply wrong: pi keys the transcript directory by
@@ -324,18 +303,6 @@ describe("startSession", () => {
 		const result = await session.reembed();
 		expect(result.blocked).toMatch(/no embedder configured/i);
 		expect(result.steps).toEqual([]);
-	});
-
-	it("refuses an embedder that plugmem would refuse, before opening anything", async () => {
-		await expect(
-			start(
-				project,
-				settingsWith((draft) => {
-					draft.memory.embedder.enabled = true;
-					draft.memory.embedder.url = "";
-				}),
-			),
-		).rejects.toThrow(/memory\.embedder\.url/);
 	});
 
 	it("prefers a project-local instruction append over the global one", async () => {
