@@ -42,6 +42,16 @@ describe("WriteNudge", () => {
 		expect(n.due()).toBe(false);
 	});
 
+	it("resets both counters when a consolidation pass starts", () => {
+		const n = nudge({ afterMessages: 2, afterToolCalls: 2 });
+		n.noteMessage();
+		n.noteToolCall();
+		n.reset();
+		n.noteMessage();
+		n.noteToolCall();
+		expect(n.due()).toBe(false);
+	});
+
 	it("goes quiet for the cooldown once it has fired", () => {
 		// Without this the reminder, having become due, repeats on every single
 		// following turn until something is written - which is how a hint turns

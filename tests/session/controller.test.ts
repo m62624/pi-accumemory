@@ -179,6 +179,20 @@ describe("MemoryController.tail", () => {
 		);
 	});
 
+	it("clears the write reminder when consolidation starts", async () => {
+		const { controller } = build({
+			settings: settingsWith((draft) => {
+				draft.memory.nudge.afterMessages = 2;
+			}),
+		});
+		controller.noteUserMessage();
+		controller.noteUserMessage();
+		controller.noteConsolidationStart();
+		expect(await controller.tail([userTurn("hello")])).not.toContain(
+			"longterm_remember",
+		);
+	});
+
 	it("hints at asking after answering twice without touching anything", async () => {
 		const { controller } = build();
 		controller.noteTurnEnd(false);

@@ -32,6 +32,11 @@ export class WriteNudge {
 
 	/** Something was stored: the reason for the reminder is gone. */
 	noteWrite(): void {
+		this.reset();
+	}
+
+	/** A consolidation pass started: do not carry its old budget into the next run. */
+	reset(): void {
 		this.messages = 0;
 		this.toolCalls = 0;
 	}

@@ -212,6 +212,14 @@ export class MemoryController {
 		this.nudge.noteTurn();
 	}
 
+	/**
+	 * The background pass is the other way to act on the same transcript. Do
+	 * not let a nudge budget from before that pass leak into the next live run.
+	 */
+	noteConsolidationStart(): void {
+		this.nudge.reset();
+	}
+
 	noteCompact(): void {
 		this.refresh.noteCompact();
 	}

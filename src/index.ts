@@ -214,8 +214,13 @@ export default function accumemory(pi: ExtensionAPI): void {
 	const idle = createIdleTrigger({
 		quietMs: () => session?.consolidationQuietMs ?? 0,
 		run: async (signal: AbortSignal) => {
-			const runner = session?.consolidation;
-			if (runner === undefined) return;
+			const current = session;
+			const runner = current?.consolidation;
+			if (current === undefined || runner === undefined) return;
+			// The timer and the live write nudge are alternative pressure points,
+			// not one combined budget. Starting the background pass clears the
+			// nudge budget so it cannot spill into the next live run.
+			current.controller.noteConsolidationStart();
 			try {
 				await runner.runOnce(signal);
 			} catch {
@@ -225,6 +230,9 @@ export default function accumemory(pi: ExtensionAPI): void {
 		},
 	});
 
+	// A nudge is rendered only while an agent run is active. This interrupt has
+	// already cancelled any pending idle timer, and agent_settled below starts a
+	// fresh countdown afterwards, so the two mechanisms cannot overlap.
 	pi.on("before_agent_start", () => idle.interrupt());
 	pi.on("agent_settled", () => idle.schedule());
 

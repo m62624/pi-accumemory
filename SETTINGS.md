@@ -48,13 +48,13 @@ day it does not.
 		},
 		"nudge": {
 			"enabled": true,
-			"afterMessages": 25,
-			"afterToolCalls": 40,
+			"afterMessages": 20,
+			"afterToolCalls": 30,
 			"cooldownTurns": 15
 		},
 		"consolidation": {
 			"enabled": true,
-			"quietMs": 1800000,
+			"quietMs": 420000,
 			"maxSteps": 12,
 			"maxNudges": 2,
 			"maxTranscriptChars": 20000,
@@ -153,13 +153,15 @@ with a warning at startup.
 
 There is **no** automatic "save a summary of every turn". The model stores what
 it judges durable; this is only the reminder that it has not stored anything in
-a while.
+a while. This reminder is independent from the background consolidation timer:
+it adds a prompt hint to a live agent run, but it does not start a consolidation
+pass and does not write a fact by itself.
 
 | key | default | what it does |
 |---|---|---|
 | `nudge.enabled` | `true` | switches the reminder off entirely |
-| `nudge.afterMessages` | `25` | messages with nothing stored before it appears |
-| `nudge.afterToolCalls` | `40` | tool calls with nothing stored before it appears. Separate from the message count because an agentic run grows in tool calls without growing in messages |
+| `nudge.afterMessages` | `20` | messages with nothing stored before it appears |
+| `nudge.afterToolCalls` | `30` | tool calls with nothing stored before it appears. Separate from the message count because an agentic run grows in tool calls without growing in messages |
 | `nudge.cooldownTurns` | `15` | turns of silence after it fires. Without this it repeats every turn until something is written, which is how a hint becomes nagging the model learns to skip |
 
 ## The background pass: `memory.consolidation.*`
@@ -168,12 +170,19 @@ When the session has been quiet for a while, a pass re-reads the transcript pi
 already wrote to disk and curates the memory from it: storing what was missed,
 collapsing repeated dated facts into one undated pattern, and dropping what has
 expired. It yields the instant you type, and everything it had decided by then
-is already saved.
+is already saved. The quiet period starts after Pi emits `agent_settled`: the
+model's response and all its tool calls are finished, with no retry, compaction
+retry or queued follow-up left. A tool call does not itself start this timer.
+
+The pass is independent from `nudge`. When the timer starts the nudge counters
+are cleared. If the nudge is shown during a live run, the idle timer has already
+been interrupted for that run and starts over only after the next
+`agent_settled`, so the two mechanisms do not overlap.
 
 | key | default | what it does |
 |---|---|---|
 | `consolidation.enabled` | `true` | switches the pass off. Memory still works; only what the model saved itself is kept |
-| `consolidation.quietMs` | `1800000` (30 min) | silence before a pass starts. A boundary meaning "work has stopped", not a budget |
+| `consolidation.quietMs` | `420000` (7 min) | silence after `agent_settled` before a pass starts. A boundary meaning "work has stopped", not a budget |
 | `consolidation.maxSteps` | `12` | tool calls before the pass is told to wrap up. This bounds a *confused* pass, not a busy one — whatever is left is picked up by the next pass from the same place |
 | `consolidation.maxNudges` | `2` | how many times a pass that produced no action is nudged before being abandoned |
 | `consolidation.maxTranscriptChars` | `20000` | how much transcript one pass reads. A cursor records how far it got, so a long session is digested by several small passes |

@@ -225,13 +225,13 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 		},
 		nudge: {
 			enabled: true,
-			afterMessages: 25,
-			afterToolCalls: 40,
+			afterMessages: 20,
+			afterToolCalls: 30,
 			cooldownTurns: 15,
 		},
 		consolidation: {
 			enabled: true,
-			quietMs: 1_800_000,
+			quietMs: 420_000,
 			maxSteps: 12,
 			maxNudges: 2,
 			maxTranscriptChars: 20_000,
