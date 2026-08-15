@@ -284,6 +284,10 @@ describe("startSession", () => {
 		expect(session.projectId).toBeUndefined();
 		expect(session.consolidation).toBeDefined();
 		expect(session.consolidationQuietMs).toBeGreaterThan(0);
+		expect(session.review).toBe(session.consolidation);
+		expect(session.reviewIntervalMs).toBe(
+			DEFAULT_SETTINGS.memory.consolidation.review.intervalMs,
+		);
 	});
 
 	it("disables the idle timer when consolidation is switched off", async () => {
@@ -294,6 +298,7 @@ describe("startSession", () => {
 			}),
 		);
 		expect(session.consolidationQuietMs).toBe(0);
+		expect(session.reviewIntervalMs).toBe(0);
 	});
 
 	it("says there is nothing to rebuild when no embedder is configured", async () => {

@@ -132,10 +132,14 @@ export interface StartedSession {
 	stumbles: StumbleLog;
 	projectId?: string;
 	projectRoot?: string;
-	/** Absent outside a project: there is no per-project transcript to curate. */
+	/** The pass over new transcript material. */
 	consolidation?: ConsolidationRunner;
-	/** `0` when consolidation is off, which is what disables the idle timer. */
+	/** The independent pass over old stored facts. */
+	review?: ConsolidationRunner;
+	/** `0` when transcript consolidation is off. */
 	consolidationQuietMs: number;
+	/** `0` when automatic review is off. */
+	reviewIntervalMs: number;
 	/**
 	 * Rebuilds every vector in the workspace after an embedder change.
 	 *
@@ -539,9 +543,16 @@ export async function startSession(
 		headInstructions,
 		cursors,
 		stumbles,
-		...(consolidation === undefined ? {} : { consolidation }),
+		...(consolidation === undefined
+			? {}
+			: { consolidation, review: consolidation }),
 		consolidationQuietMs:
 			consolidation === undefined ? 0 : settings.memory.consolidation.quietMs,
+		reviewIntervalMs:
+			consolidation === undefined ||
+			!settings.memory.consolidation.review.enabled
+				? 0
+				: settings.memory.consolidation.review.intervalMs,
 		reembed: async (onProgress) => {
 			// Recomputing vectors needs a provider to compute them with. Saying
 			// so beats the engine's own error, which arrives after the command

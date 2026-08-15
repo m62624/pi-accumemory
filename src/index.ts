@@ -25,6 +25,10 @@ import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
 import { nodeFileOps } from "./node-fs.ts";
 import { withHead } from "./session/head.ts";
 import { createIdleTrigger } from "./session/idle-trigger.ts";
+import {
+	createPeriodicTrigger,
+	type PeriodicTrigger,
+} from "./session/periodic-trigger.ts";
 import { unfixableNotice } from "./session/stumbles.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
@@ -50,6 +54,9 @@ export default function accumemory(pi: ExtensionAPI): void {
 	let session: StartedSession | undefined;
 	let startupError: string | undefined;
 	let noticesShown = false;
+	let mainAgentRunning = false;
+	let reviewTrigger: PeriodicTrigger | undefined;
+	let backgroundQueue = Promise.resolve();
 
 	const agentDir = getAgentDir();
 	const layout = extensionLayout(agentDir, path);
@@ -94,6 +101,18 @@ export default function accumemory(pi: ExtensionAPI): void {
 			startupError = `pi-accumemory could not start its memory: ${describe(error)}`;
 			return undefined;
 		});
+
+	const enqueueBackground = (
+		signal: AbortSignal,
+		task: () => Promise<void>,
+	): Promise<void> => {
+		const next = backgroundQueue.then(async () => {
+			if (signal.aborted) return;
+			await task();
+		});
+		backgroundQueue = next.catch(() => {});
+		return next;
+	};
 
 	// -- tools ---------------------------------------------------------------
 
@@ -171,6 +190,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (_event, ctx) => {
 		await ready;
+		reviewTrigger?.start();
 		if (noticesShown) return;
 		noticesShown = true;
 		const notices =
@@ -181,7 +201,9 @@ export default function accumemory(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", () => {
 		// The strongest signal that the topic was set or changed.
+		mainAgentRunning = true;
 		session?.controller.noteUserMessage();
+		reviewTrigger?.interrupt();
 	});
 
 	pi.on("tool_execution_end", (event) => {
@@ -202,6 +224,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 
 	pi.on("session_shutdown", () => {
 		idle?.cancel();
+		reviewTrigger?.cancel();
 		session?.close();
 		session = undefined;
 	});
@@ -217,16 +240,18 @@ export default function accumemory(pi: ExtensionAPI): void {
 			const current = session;
 			const runner = current?.consolidation;
 			if (current === undefined || runner === undefined) return;
-			// The timer and the live write nudge are alternative pressure points,
-			// not one combined budget. Starting the background pass clears the
-			// nudge budget so it cannot spill into the next live run.
-			current.controller.noteConsolidationStart();
-			try {
-				await runner.runOnce(signal);
-			} catch {
-				// A pass that fails is a pass that did not happen. The next one
-				// resumes from the same cursor.
-			}
+			await enqueueBackground(signal, async () => {
+				// The timer and the live write nudge are alternative pressure points,
+				// not one combined budget. Starting the background pass clears the
+				// nudge budget so it cannot spill into the next live run.
+				current.controller.noteBackgroundPassStart();
+				try {
+					await runner.runOnce(signal);
+				} catch {
+					// A pass that fails is a pass that did not happen. The next one
+					// resumes from the same cursor.
+				}
+			});
 		},
 	});
 
@@ -234,7 +259,32 @@ export default function accumemory(pi: ExtensionAPI): void {
 	// already cancelled any pending idle timer, and agent_settled below starts a
 	// fresh countdown afterwards, so the two mechanisms cannot overlap.
 	pi.on("before_agent_start", () => idle.interrupt());
-	pi.on("agent_settled", () => idle.schedule());
+	pi.on("agent_settled", () => {
+		mainAgentRunning = false;
+		idle.schedule();
+	});
+
+	// Old-fact review has its own wall-clock schedule. It is deliberately not
+	// tied to agent_settled: review must happen even when nobody starts another
+	// conversation after the last one. The queue serializes it with the fresh
+	// transcript pass, and user activity interrupts the review agent.
+	reviewTrigger = createPeriodicTrigger({
+		intervalMs: () => session?.reviewIntervalMs ?? 0,
+		run: async (signal: AbortSignal) => {
+			if (mainAgentRunning) return;
+			const current = session;
+			const runner = current?.review;
+			if (current === undefined || runner === undefined) return;
+			await enqueueBackground(signal, async () => {
+				current.controller.noteBackgroundPassStart();
+				try {
+					await runner.runReviewOnce(signal);
+				} catch {
+					// The next interval retries an interrupted or failed review.
+				}
+			});
+		},
+	});
 
 	// -- commands ------------------------------------------------------------
 
@@ -283,6 +333,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 		ui: { notify(message: string, level?: "info" | "warning" | "error"): void };
 	}): Promise<boolean> => {
 		idle.interrupt();
+		reviewTrigger?.interrupt();
 		session?.close();
 		session = undefined;
 		try {

@@ -1,5 +1,5 @@
 /**
- * How far the review phase has walked each memory.
+ * How far the automatic review job has walked each memory.
  *
  * One number per key: the highest fact id it has shown. The next window starts
  * after it, and `0` means start from the beginning - which is also what the

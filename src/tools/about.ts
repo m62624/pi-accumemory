@@ -186,6 +186,7 @@ export class AboutDesk {
 			`- consolidation.maxTranscriptChars: ${consolidation.maxTranscriptChars}`,
 			`- consolidation.promoteToCommon: ${consolidation.promoteToCommon}`,
 			`- consolidation.review.enabled: ${consolidation.review.enabled}`,
+			`- consolidation.review.intervalMs: ${consolidation.review.intervalMs} (${Math.round(consolidation.review.intervalMs / 60_000)} minutes)`,
 			`- consolidation.review.sampleSize: ${consolidation.review.sampleSize}`,
 			`- consolidation.habits.enabled: ${consolidation.habits.enabled}`,
 			`- consolidation.habits.afterSessions: ${consolidation.habits.afterSessions}`,

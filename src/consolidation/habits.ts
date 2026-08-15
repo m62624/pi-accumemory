@@ -1,7 +1,7 @@
 /**
- * The third phase of a pass: a mistake this model keeps making.
+ * The habit phase of the transcript pass: a mistake this model keeps making.
  *
- * The other two phases curate what the memory KNOWS. This one is about how the
+ * The other two jobs curate what the memory KNOWS. This one is about how the
  * model USES it, and it exists because nothing else could. `RepeatGuard` breaks
  * a loop inside one session and forgets; the transcript records the correction
  * but not that it was the fifth. Only the counter in `session/stumbles.ts` can

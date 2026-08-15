@@ -1,5 +1,5 @@
 /**
- * The review phase's two pure pieces: what it shows, and where it stops.
+ * The review job's two pure pieces: what it shows, and where it stops.
  *
  * The cursor arithmetic is the part with a bug in it waiting to happen, and one
  * did: an exclusive `> from` starting at zero skips [f0] for the life of the

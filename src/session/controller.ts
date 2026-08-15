@@ -216,7 +216,7 @@ export class MemoryController {
 	 * The background pass is the other way to act on the same transcript. Do
 	 * not let a nudge budget from before that pass leak into the next live run.
 	 */
-	noteConsolidationStart(): void {
+	noteBackgroundPassStart(): void {
 		this.nudge.reset();
 	}
 

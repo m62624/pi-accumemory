@@ -71,7 +71,7 @@ export interface RunnerDeps {
 	cursorKey: string;
 	/** How the pass refers to what it is reviewing, in its own prompt. */
 	label: string;
-	/** How far the review phase has walked, filed under the same key. */
+	/** How far the review job has walked, filed under the same key. */
 	reviewCursor: {
 		get(key: string): Promise<number>;
 		set(key: string, at: number): Promise<void>;
@@ -108,32 +108,35 @@ export interface PassOutcome {
 export class ConsolidationRunner {
 	constructor(private readonly deps: RunnerDeps) {}
 
-	/**
-	 * One pass: read what happened, then re-read what is already stored.
-	 *
-	 * Two phases and two agent runs, not one run with two sections, for two
-	 * reasons. They compete for the same step budget otherwise, and the first
-	 * phase would routinely eat it. And the second phase must be able to run
-	 * when the first has nothing to do: an idle machine with no new transcript
-	 * is exactly when there is time to age the memory, and refusing then means
-	 * the review happens least on the days it costs least.
-	 */
+	/** One pass over the unprocessed transcript and repeated model mistakes. */
 	async runOnce(signal?: AbortSignal): Promise<PassOutcome> {
 		if (!this.deps.settings.enabled) return { ran: false, reason: "disabled" };
 
 		const transcript = await this.readPhase(signal);
-		const reviewed = await this.reviewPhase(signal);
 		const habit = await this.habitsPhase(signal);
 
-		// Reclaim what either phase forgot. Last, because it is the only step
-		// that is about bytes rather than about content, and because both
-		// phases produce the tombstones it collects.
-		if ((transcript || reviewed) && this.deps.settings.maintain) {
+		if (transcript && this.deps.settings.maintain) {
 			await this.deps.controller.maintain();
 		}
 
-		if (transcript || reviewed || habit) return { ran: true, steps: 0 };
+		if (transcript || habit) return { ran: true, steps: 0 };
 		return { ran: false, reason: "nothing new" };
+	}
+
+	/** One independent maintenance pass over old stored facts. */
+	async runReviewOnce(signal?: AbortSignal): Promise<PassOutcome> {
+		if (!this.deps.settings.enabled) return { ran: false, reason: "disabled" };
+		if (!this.deps.settings.review.enabled) {
+			return { ran: false, reason: "review disabled" };
+		}
+
+		const reviewed = await this.reviewPhase(signal);
+		if (reviewed && this.deps.settings.maintain) {
+			await this.deps.controller.maintain();
+		}
+		return reviewed
+			? { ran: true, steps: 0 }
+			: { ran: false, reason: "nothing to review" };
 	}
 
 	/** Phase one: the unprocessed tail of the transcript. Ran, or did not. */
@@ -225,7 +228,7 @@ export class ConsolidationRunner {
 	 * Phase three: one mistake this model has made in several sessions.
 	 *
 	 * Last of the three, and the only one that can go a long time without
-	 * running at all - which is the correct shape. The first two phases have
+	 * running at all - which is the correct shape. The first two jobs have
 	 * material almost every pass; this one has material only when something is
 	 * actually going wrong, and a phase that fires on nothing would be a phase
 	 * that invents a habit to have something to say.

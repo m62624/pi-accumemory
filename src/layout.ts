@@ -44,7 +44,7 @@ export interface ExtensionLayout {
 	stateDir: string;
 	/** How far the consolidation pass has read each project's transcript. */
 	consolidationStateFile: string;
-	/** How far the review phase has walked each memory. */
+	/** How far the automatic review job has walked each memory. */
 	reviewStateFile: string;
 	/** Mistakes this model has repeated, counted across sessions. */
 	stumbleStateFile: string;

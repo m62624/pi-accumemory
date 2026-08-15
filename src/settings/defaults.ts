@@ -56,16 +56,11 @@ export interface NudgeSettings {
 	cooldownTurns: number;
 }
 
-/**
- * The second phase of a pass: re-reading what is already stored.
- *
- * Separate from the first because it answers a different question and can be
- * wanted on its own. The first phase reads the transcript, so it only ever
- * considers what was just discussed; this one walks the oldest facts, which
- * nothing else would ever bring up again.
- */
+/** The independent automatic pass that re-reads the oldest stored facts. */
 export interface ReviewSettings {
 	enabled: boolean;
+	/** Milliseconds between automatic review passes; 0 disables the scheduler. */
+	intervalMs: number;
 	/**
 	 * How many old facts one pass looks at, per memory.
 	 *
@@ -77,7 +72,7 @@ export interface ReviewSettings {
 }
 
 /**
- * The third phase: a mistake the model has repeated across sessions.
+ * The habit phase: a mistake the model has repeated across sessions.
  *
  * Off is a defensible choice, which is why it is a setting. What it produces
  * lands in the head of every request forever, and somebody who would rather
@@ -238,6 +233,7 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 			promoteToCommon: true,
 			review: {
 				enabled: true,
+				intervalMs: 1_800_000,
 				sampleSize: 12,
 			},
 			habits: {

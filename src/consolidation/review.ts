@@ -1,5 +1,5 @@
 /**
- * The second phase of a consolidation pass: looking at what is already stored.
+ * An independent maintenance pass: looking at what is already stored.
  *
  * The first phase reads the transcript, so it only ever considers what was just
  * discussed. That leaves a gap nothing else covers: a fact learned six months
@@ -43,7 +43,7 @@ export interface ReviewContext {
 	held: number;
 }
 
-/** The opening message of a review phase. */
+/** The opening message of an independent review pass. */
 export function reviewPrompt(context: ReviewContext): string {
 	const parts = [
 		context.clock,

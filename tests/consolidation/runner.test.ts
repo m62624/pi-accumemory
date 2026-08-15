@@ -219,7 +219,7 @@ describe("ConsolidationRunner", () => {
 	});
 });
 
-describe("the review phase", () => {
+describe("the independent review job", () => {
 	/** A build whose project memory already holds `count` older facts. */
 	async function seeded(
 		count: number,
@@ -236,19 +236,18 @@ describe("the review phase", () => {
 		return parts;
 	}
 
-	/** The prompt of the review phase, whichever run it was. */
+	/** The prompt of the review job, whichever run it was. */
 	const reviewPromptOf = (agent: { prompts: string[] }) =>
 		agent.prompts.find((prompt) =>
 			/oldest facts still in memory/i.test(prompt),
 		);
 
-	it("runs on its own when the transcript has nothing new", async () => {
-		// The point of the phase. An idle machine with no new transcript is
-		// exactly when there is time to age the memory; refusing then means the
-		// review happens least on the days it costs least.
+	it("runs independently when the transcript has nothing new", async () => {
+		// Review has its own scheduler, so it does not depend on a new
+		// conversation turn to age the memory.
 		const { runner } = await seeded(3, { turns: [] });
 		const agent = scriptedAgent([[DONE_TOOL, ""]]);
-		expect((await runner(agent).runOnce()).ran).toBe(true);
+		expect((await runner(agent).runReviewOnce()).ran).toBe(true);
 		expect(agent.prompts).toHaveLength(1);
 		expect(reviewPromptOf(agent)).toBeDefined();
 	});
@@ -256,29 +255,27 @@ describe("the review phase", () => {
 	it("shows the oldest facts, with their ids and their scope", async () => {
 		const { runner } = await seeded(3);
 		const agent = scriptedAgent([[DONE_TOOL, ""]]);
-		await runner(agent).runOnce();
+		await runner(agent).runReviewOnce();
 		const review = reviewPromptOf(agent) ?? "";
 		expect(review).toContain("[f0] an older fact number 0");
 		expect(review).toContain('the ids below are scope: "project"');
 		expect(review).toContain("#decision");
 	});
 
-	it("runs as a second agent run, with its own step budget", async () => {
-		// One run with two sections would let the transcript phase eat the
-		// budget, and it routinely would - it is the phase with material.
+	it("runs as its own agent run, with its own step budget", async () => {
 		const { runner } = await seeded(3);
 		const agent = scriptedAgent([[DONE_TOOL, ""]]);
-		await runner(agent).runOnce();
-		expect(agent.prompts).toHaveLength(2);
+		await runner(agent).runReviewOnce();
+		expect(agent.prompts).toHaveLength(1);
 	});
 
 	it("walks forward, so the next pass sees the next window", async () => {
 		const { runner, reviewCursor } = await seeded(5, { turns: [] });
-		await runner(scriptedAgent([[DONE_TOOL, ""]])).runOnce();
+		await runner(scriptedAgent([[DONE_TOOL, ""]])).runReviewOnce();
 		expect(await reviewCursor.get("p1")).toBe(5);
 
 		const agent = scriptedAgent([[DONE_TOOL, ""]]);
-		await runner(agent).runOnce();
+		await runner(agent).runReviewOnce();
 		// Nothing after id 4, so the walk wraps instead of re-showing the same
 		// window forever - what survived one review is worth asking about again
 		// later, but not immediately.
@@ -289,10 +286,12 @@ describe("the review phase", () => {
 	it("keeps the window small, however much is stored", async () => {
 		const { runner } = await seeded(20, {
 			turns: [],
-			settings: { review: { enabled: true, sampleSize: 4 } },
+			settings: {
+				review: { enabled: true, intervalMs: 1_800_000, sampleSize: 4 },
+			},
 		});
 		const agent = scriptedAgent([[DONE_TOOL, ""]]);
-		await runner(agent).runOnce();
+		await runner(agent).runReviewOnce();
 		const review = reviewPromptOf(agent) ?? "";
 		expect(review).toContain("[f3]");
 		expect(review).not.toContain("[f4]");
@@ -300,10 +299,12 @@ describe("the review phase", () => {
 
 	it("can be switched off on its own", async () => {
 		const { runner } = await seeded(3, {
-			settings: { review: { enabled: false, sampleSize: 12 } },
+			settings: {
+				review: { enabled: false, intervalMs: 1_800_000, sampleSize: 12 },
+			},
 		});
 		const agent = scriptedAgent([[DONE_TOOL, ""]]);
-		await runner(agent).runOnce();
+		await runner(agent).runReviewOnce();
 		expect(reviewPromptOf(agent)).toBeUndefined();
 	});
 });
@@ -332,7 +333,7 @@ describe("reclaiming space", () => {
 });
 
 /**
- * The third phase. Everything here is about it staying quiet: it is the only
+ * The habit phase. Everything here is about it staying quiet: it is the only
  * phase whose output is charged to every future request, so the interesting
  * cases are the ones where it must NOT run.
  */

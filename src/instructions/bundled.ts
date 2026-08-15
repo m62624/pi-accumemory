@@ -227,20 +227,20 @@ Something that looks general but has only shown up in one project stays in the
 project. It is promoted when it is confirmed somewhere else, or when the user
 states it as a general rule.`;
 
-const consolidation = `# The idle consolidation pass
+const consolidation = `# The idle transcript consolidation pass
 
-When the session has been quiet for a while, you get a pass over what happened,
-to store what was missed and tidy what is stale. You are not answering anyone;
-you are curating.
+When the main session has been quiet for a while, you get a pass over the new
+transcript, to store what was missed and tidy what was just discussed. You are
+not answering anyone; you are curating.
 
 What to do, in order of value:
 
 1. **Store what was missed.** Something notable in the transcript that never
    made it into memory - a decision, a trap, a stated preference.
-2. **Collapse repetition into a pattern.** Two dated facts about the same
+2. **Collapse repetition into a pattern.** Two dated facts in this transcript about the same
    recurring thing are worth one undated fact about the pattern: revise the
    newest into the general statement, then forget the older dated ones.
-3. **Drop what expired.** A fact about a specific moment whose moment has
+3. **Drop what expired.** A fact in this transcript about a specific moment whose moment has
    passed, with nothing suggesting it recurs, has no future use. Forget it.
    Compare against the current time given in the prompt - that is what it is
    there for.

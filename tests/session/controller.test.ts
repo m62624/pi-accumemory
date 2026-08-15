@@ -187,7 +187,7 @@ describe("MemoryController.tail", () => {
 		});
 		controller.noteUserMessage();
 		controller.noteUserMessage();
-		controller.noteConsolidationStart();
+		controller.noteBackgroundPassStart();
 		expect(await controller.tail([userTurn("hello")])).not.toContain(
 			"longterm_remember",
 		);

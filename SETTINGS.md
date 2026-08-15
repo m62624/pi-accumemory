@@ -61,6 +61,7 @@ day it does not.
 			"promoteToCommon": true,
 			"review": {
 				"enabled": true,
+				"intervalMs": 1800000,
 				"sampleSize": 12
 			},
 			"habits": {
@@ -187,27 +188,34 @@ been interrupted for that run and starts over only after the next
 | `consolidation.maxNudges` | `2` | how many times a pass that produced no action is nudged before being abandoned |
 | `consolidation.maxTranscriptChars` | `20000` | how much transcript one pass reads. A cursor records how far it got, so a long session is digested by several small passes |
 | `consolidation.promoteToCommon` | `true` | lets the pass move a fact confirmed in several projects into the shared memory |
-| `consolidation.review.enabled` | `true` | the pass's **second phase**: re-reading the oldest stored facts. See below |
+| `consolidation.review.enabled` | `true` | switches the automatic old-fact review on or off |
+| `consolidation.review.intervalMs` | `1800000` (30 min) | milliseconds between automatic review passes. This is separate from `consolidation.quietMs` |
 | `consolidation.review.sampleSize` | `12` | the review window: how many old facts one pass looks at, per memory. A **floor** — see below |
-| `consolidation.habits.enabled` | `true` | the pass's **third phase**: a mistake the model has repeated across sessions. See below |
+| `consolidation.habits.enabled` | `true` | the pass's habit phase: a mistake the model has repeated across sessions. See below |
 | `consolidation.habits.afterSessions` | `3` | separate sessions a mistake must appear in before it is raised |
 | `consolidation.maintain` | `true` | reclaim the disk of forgotten facts at the end of a pass |
 
-## The second phase: `consolidation.review.*`
+## Automatic review: `consolidation.review.*`
+
+The transcript pass and old-fact review are separate automatic jobs. The
+transcript pass waits `consolidation.quietMs` after a main agent run and reads
+new conversation. The review scheduler runs every `intervalMs` while Pi is
+alive, even when nobody has written anything new. It reads old facts only; it
+does not read or add messages to the conversation.
 
 The first phase reads the transcript, so it only ever weighs what was just
-discussed. That leaves a gap nothing else covers: a fact learned six months ago
-and never mentioned since is never reconsidered, not because it is still true,
-but because nothing puts it in front of anybody.
+discussed. The separate review leaves no fact stranded: a fact learned six
+months ago and never mentioned since is still eventually reconsidered, not
+because it is old, but because the review cursor puts it in front of the model.
 
-So a pass has a second phase. It shows the model a window of the **oldest**
-stored facts and asks one question of each: does this still earn its place. The
-window walks forward every pass and wraps at the end, so the whole memory is
-covered over time and nothing is shown twice in a row.
+The review job shows the model a window of the **oldest** stored facts and asks
+one question of each: does this still earn its place. The window walks forward
+every review pass and wraps at the end, so the whole memory is covered over time
+and nothing is shown twice in a row.
 
 It runs even when the transcript has nothing new (an idle machine is exactly
-when there is time for it), and it is a second agent run with its own step
-budget, so the transcript phase cannot eat the budget before it starts.
+when there is time for it), and it is a separate agent run with its own step
+budget, so the transcript pass cannot eat the review budget before it starts.
 
 Nothing here deletes on a rule. The model decides; a fact is dropped only when
 its date has passed, it duplicates another, or it is contradicted. "Old" is not
@@ -241,9 +249,9 @@ The window is also *fetched* as a window. The engine pages at 128 facts and
 answers a page in 0.3 ms; reading to the end of ten thousand facts costs 23 ms
 and builds ten thousand objects to throw all but the window away.
 
-## The third phase: `consolidation.habits.*`
+## Habit learning: `consolidation.habits.*`
 
-The first two phases curate what the memory *knows*. This one is about how the
+The transcript and review jobs curate what the memory *knows*. This one is about how the
 model *uses* it.
 
 Inside one session, a failing call that is sent twice gets a sharper answer and a

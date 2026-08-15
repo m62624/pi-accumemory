@@ -179,7 +179,7 @@ differently, switch on an embedder in the engine's own `config.toml`. See
   instructions/defaults/         ours, rewritten on upgrade
   instructions/append/           yours, never touched
   state/consolidation.json       how far the background pass has read
-  state/review.json              how far the review phase has walked
+  state/review.json              how far the review job has walked
   state/stumbles.json            mistakes repeated across sessions
 ```
 

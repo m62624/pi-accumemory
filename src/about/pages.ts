@@ -419,33 +419,37 @@ be gone, in a later session - nothing is broken, and it was not the user.
 
 ## When
 
-After about thirty minutes of quiet, a pass runs on its own. The user can also
-start one with \`/longterm-consolidate\`. The moment anyone types, the pass stops
+After about seven minutes of quiet following a settled main agent run, a pass
+reads new transcript material. A separate automatic review runs every thirty
+minutes while Pi is alive. The user can also start the transcript pass manually
+with \`/longterm-consolidate\`. The moment anyone types, a running pass stops
 where it is - every call it already made is on disk, so nothing is half-done.
 
-## Two phases
+## Two automatic jobs
 
-**Phase one reads the transcript.** The part of the conversation nothing has
-looked at yet. It stores what was missed, collapses repetitions into one
-statement, splits a fact that turned out to be three, drops what has expired, and
-promotes to the user memory anything confirmed in two different projects.
+**The transcript pass** reads the part of the conversation nothing has looked at
+yet. It stores what was missed, collapses repetitions into one statement, splits
+a fact that turned out to be three, drops what has expired, and promotes to the
+user memory anything confirmed in two different projects.
 
-**Phase two reads the memory itself**, oldest facts first. This exists because
-phase one only ever considers what was just discussed - a fact from six months
-ago is never reconsidered, not because it is right but because nothing puts it in
-front of anybody. So a window of the oldest entries is shown, and each gets one
-question: does it still earn its place.
+**The independent review job reads the memory itself**, oldest facts first. This
+exists because the transcript pass only considers what was just discussed - a
+fact from six months ago is never reconsidered, not because it is right but
+because nothing puts it in front of anybody. Every thirty minutes a window of
+the oldest entries is shown, and each gets one question: does it still earn its
+place.
 
-The window walks forward and wraps at the end, and it grows with the memory, so a
-full circuit stays around a hundred passes whatever the memory holds.
+The review window walks forward and wraps at the end, and it grows with the
+memory, so a full circuit stays around a hundred review passes whatever the
+memory holds.
 
-**Most facts survive phase two, and that is the expected outcome.** Age is not a
+**Most facts survive review, and that is the expected outcome.** Age is not a
 reason to delete anything. Only a date that has passed, a genuine duplicate, or a
 statement that is now false is.
 
 ## Then the disk
 
-At the end of a pass that did something, forgotten facts have their bytes
+At the end of a job that did something, forgotten facts have their bytes
 reclaimed. Revisions are never touched, in any mode - what was true in March goes
 on answering.
 
@@ -455,8 +459,8 @@ You are not in a conversation. Nobody is waiting and there is no reply to write:
 the only things that count are the memory calls you make. Describing a change is
 not making one. When you have nothing left to do, call \`longterm_done\`.
 
-Each result carries a note about the budget. A pass has a step limit, and it is
-not a failure to reach it - the next pass resumes from the same place.`,
+Each result carries a note about the budget. Each job has a step limit, and it is
+not a failure to reach it - the next job resumes from the same place.`,
 
 	settings: `# How this extension is configured
 
@@ -513,12 +517,13 @@ a compaction.
 **\`memory.nudge\`** - the reminder that nothing has been stored in a while, and
 how long it stays quiet afterwards.
 
-**\`memory.consolidation\`** - the idle pass. \`quietMs\` before it starts,
-\`maxSteps\` and \`maxNudges\` as its budget, \`maxTranscriptChars\` for how much
-transcript one pass reads, \`promoteToCommon\`, \`review.enabled\` and
-\`review.sampleSize\` for the second phase, \`habits.enabled\` and
-\`habits.afterSessions\` for the third, \`maintain\` for reclaiming disk at the
-end.
+**\`memory.consolidation\`** - the automatic memory jobs. \`quietMs\` before the
+new-transcript pass starts, \`maxSteps\` and \`maxNudges\` as its budget,
+\`maxTranscriptChars\` for how much transcript one pass reads,
+\`promoteToCommon\`, \`review.enabled\`, \`review.intervalMs\` and
+\`review.sampleSize\` for the independent old-fact review, \`habits.enabled\`
+and \`habits.afterSessions\` for repeated model mistakes, and \`maintain\` for
+reclaiming disk at the end.
 
 **\`memory.crossProject.enabled\`** - whether another project's memory may be
 read from here at all.

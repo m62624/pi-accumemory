@@ -82,7 +82,11 @@ const SCHEMA: Record<string, FieldSpec> = {
 					promoteToCommon: BOOL,
 					review: {
 						kind: "section",
-						fields: { enabled: BOOL, sampleSize: COUNT },
+						fields: {
+							enabled: BOOL,
+							intervalMs: COUNT,
+							sampleSize: COUNT,
+						},
 					},
 					habits: {
 						kind: "section",
