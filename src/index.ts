@@ -15,7 +15,10 @@
 
 import { homedir } from "node:os";
 import path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionUIContext,
+} from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { extensionLayout, projectDbName } from "./layout.ts";
@@ -35,6 +38,7 @@ import { type StartedSession, startSession } from "./startup.ts";
 import type { EmbedderState } from "./storage/port.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import { lazyController, MEMORY_UNAVAILABLE } from "./tools/lazy.ts";
+import { createBackgroundProgress } from "./ui/background-progress.ts";
 import { terminalWidth } from "./ui/fit.ts";
 import {
 	buildRebindOptions,
@@ -57,6 +61,10 @@ export default function accumemory(pi: ExtensionAPI): void {
 	let mainAgentRunning = false;
 	let reviewTrigger: PeriodicTrigger | undefined;
 	let backgroundQueue = Promise.resolve();
+	let ui: ExtensionUIContext | undefined;
+	const backgroundProgress = createBackgroundProgress({
+		ui: () => ui,
+	});
 
 	const agentDir = getAgentDir();
 	const layout = extensionLayout(agentDir, path);
@@ -189,6 +197,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 	// -- lifecycle -----------------------------------------------------------
 
 	pi.on("session_start", async (_event, ctx) => {
+		ui = ctx.ui;
 		await ready;
 		reviewTrigger?.start();
 		if (noticesShown) return;
@@ -204,6 +213,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 		mainAgentRunning = true;
 		session?.controller.noteUserMessage();
 		reviewTrigger?.interrupt();
+		backgroundProgress.interrupt();
 	});
 
 	pi.on("tool_execution_end", (event) => {
@@ -225,6 +235,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", () => {
 		idle?.cancel();
 		reviewTrigger?.cancel();
+		backgroundProgress.cancel();
 		session?.close();
 		session = undefined;
 	});
@@ -241,13 +252,22 @@ export default function accumemory(pi: ExtensionAPI): void {
 			const runner = current?.consolidation;
 			if (current === undefined || runner === undefined) return;
 			await enqueueBackground(signal, async () => {
+				const progress = backgroundProgress.begin("consolidation");
 				// The timer and the live write nudge are alternative pressure points,
 				// not one combined budget. Starting the background pass clears the
 				// nudge budget so it cannot spill into the next live run.
 				current.controller.noteBackgroundPassStart();
 				try {
-					await runner.runOnce(signal);
+					const outcome = await runner.runOnce(signal);
+					progress.end(
+						signal.aborted
+							? "interrupted"
+							: outcome.ran
+								? "completed"
+								: "nothing",
+					);
 				} catch {
+					progress.end(signal.aborted ? "interrupted" : "failed");
 					// A pass that fails is a pass that did not happen. The next one
 					// resumes from the same cursor.
 				}
@@ -276,10 +296,19 @@ export default function accumemory(pi: ExtensionAPI): void {
 			const runner = current?.review;
 			if (current === undefined || runner === undefined) return;
 			await enqueueBackground(signal, async () => {
+				const progress = backgroundProgress.begin("review");
 				current.controller.noteBackgroundPassStart();
 				try {
-					await runner.runReviewOnce(signal);
+					const outcome = await runner.runReviewOnce(signal);
+					progress.end(
+						signal.aborted
+							? "interrupted"
+							: outcome.ran
+								? "completed"
+								: "nothing",
+					);
 				} catch {
+					progress.end(signal.aborted ? "interrupted" : "failed");
 					// The next interval retries an interrupted or failed review.
 				}
 			});
@@ -334,6 +363,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 	}): Promise<boolean> => {
 		idle.interrupt();
 		reviewTrigger?.interrupt();
+		backgroundProgress.cancel();
 		session?.close();
 		session = undefined;
 		try {
@@ -523,13 +553,16 @@ export default function accumemory(pi: ExtensionAPI): void {
 				return;
 			}
 			idle.interrupt();
-			const outcome = await runner.runOnce();
-			ctx.ui.notify(
-				outcome.ran
-					? "Consolidation pass finished."
-					: `Nothing to do: ${outcome.reason}.`,
-				"info",
-			);
+			reviewTrigger?.interrupt();
+			backgroundProgress.cancel();
+			await backgroundQueue;
+			const progress = backgroundProgress.begin("consolidation");
+			try {
+				const outcome = await runner.runOnce();
+				progress.end(outcome.ran ? "completed" : "nothing");
+			} catch {
+				progress.end("failed");
+			}
 		},
 	});
 

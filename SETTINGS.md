@@ -203,6 +203,11 @@ new conversation. The review scheduler runs every `intervalMs` while Pi is
 alive, even when nobody has written anything new. It reads old facts only; it
 does not read or add messages to the conversation.
 
+Each automatic job uses a temporary in-memory Pi session. It is not written to
+the session JSONL files and does not appear in the `/resume` picker. The main UI
+shows English start/finish notifications and a small animated status widget;
+the job's memory writes still go to the normal database immediately.
+
 The first phase reads the transcript, so it only ever weighs what was just
 discussed. The separate review leaves no fact stranded: a fact learned six
 months ago and never mentioned since is still eventually reconsidered, not

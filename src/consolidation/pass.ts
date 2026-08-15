@@ -12,6 +12,7 @@
 
 import { consolidationBlock } from "../memory/block.ts";
 import type { Turn } from "../memory/transcript-view.ts";
+import { MEMORY_CONSOLIDATION_ROLE } from "./agent-role.ts";
 import type { ConsolidationLedger } from "./ledger.ts";
 
 export interface PassContext {
@@ -32,6 +33,8 @@ export function passPrompt(context: PassContext): string {
 	const transcript = renderTranscript(context.transcript);
 	return [
 		context.clock,
+		"",
+		MEMORY_CONSOLIDATION_ROLE,
 		"",
 		`You are reviewing what happened in ${context.label} while it was quiet, ` +
 			"and curating your own long-term memory from it. Nobody is waiting for a reply; " +

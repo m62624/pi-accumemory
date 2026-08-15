@@ -21,6 +21,7 @@
  */
 
 import type { Scope } from "../session/controller.ts";
+import { MEMORY_CONSOLIDATION_ROLE } from "./agent-role.ts";
 
 export interface ReviewFact {
 	id: number;
@@ -47,6 +48,8 @@ export interface ReviewContext {
 export function reviewPrompt(context: ReviewContext): string {
 	const parts = [
 		context.clock,
+		"",
+		MEMORY_CONSOLIDATION_ROLE,
 		"",
 		"You are reviewing facts you stored earlier, oldest first, while nothing else " +
 			"is happening. Nobody is waiting for a reply and there is no answer to write - " +

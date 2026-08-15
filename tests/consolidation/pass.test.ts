@@ -26,6 +26,13 @@ describe("passPrompt", () => {
 		expect(passPrompt(context)).toMatch(/nobody is waiting/i);
 	});
 
+	it("identifies the specialist and its tool boundary", () => {
+		const prompt = passPrompt(context);
+		expect(prompt).toContain("pi-accumemory's memory-consolidation specialist");
+		expect(prompt).toMatch(/full access to pi-accumemory's memory tools/i);
+		expect(prompt).toMatch(/do not have access to .*filesystem/i);
+	});
+
 	it("carries the clock, which is what makes a date judgeable", () => {
 		expect(passPrompt(context)).toContain("[Now:");
 	});

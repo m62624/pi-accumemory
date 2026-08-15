@@ -36,6 +36,17 @@ describe("reviewPrompt", () => {
 		expect(prompt).toMatch(/nobody is waiting for a reply/i);
 	});
 
+	it("uses the same specialist boundary as transcript consolidation", () => {
+		const prompt = reviewPrompt({
+			instructions: "the rules",
+			clock: "[Now: X]",
+			windows: [window([0])],
+			held: 1,
+		});
+		expect(prompt).toContain("pi-accumemory's memory-consolidation specialist");
+		expect(prompt).toMatch(/do not have access to .*ordinary Pi tools/i);
+	});
+
 	it("labels each window with the scope its ids belong to", () => {
 		const prompt = reviewPrompt({
 			instructions: "",

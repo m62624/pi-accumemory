@@ -36,6 +36,7 @@ import {
 	STUMBLE_DESCRIPTIONS,
 	type StumbleReport,
 } from "../session/stumbles.ts";
+import { MEMORY_CONSOLIDATION_ROLE } from "./agent-role.ts";
 
 export interface HabitsContext {
 	clock: string;
@@ -51,6 +52,8 @@ export function habitsPrompt(context: HabitsContext): string {
 	const { habit, standing, limits } = context;
 	const parts = [
 		context.clock,
+		"",
+		MEMORY_CONSOLIDATION_ROLE,
 		"",
 		"This is not a conversation and nobody is waiting. You are looking at one " +
 			"thing: a mistake you have made in several separate sessions.",

@@ -443,6 +443,11 @@ The review window walks forward and wraps at the end, and it grows with the
 memory, so a full circuit stays around a hundred review passes whatever the
 memory holds.
 
+Each automatic job runs in a temporary in-memory Pi session. It does not appear
+in the \`/resume\` picker or enter the main conversation. While it runs, the
+terminal shows an English status line and a small animated widget; the memory
+changes themselves are saved normally.
+
 **Most facts survive review, and that is the expected outcome.** Age is not a
 reason to delete anything. Only a date that has passed, a genuine duplicate, or a
 statement that is now false is.
