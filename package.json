@@ -57,6 +57,7 @@
 		"yaml": "^2.9.0"
 	},
 	"dependencies": {
+		"@visulima/secret-scanner": "^2.0.0",
 		"plugmem": "^0.12.0"
 	}
 }

@@ -153,9 +153,21 @@ per new fact when the same block sits above the transcript instead of below.
 **It will not store credentials.** Not tokens, not keys, not passwords, not the
 contents of `.env`. This memory is permanent and is read at the start of every
 session in every project, so a secret written into it is re-injected into
-context indefinitely. The rule is in the shipped instructions and in the tool
-descriptions, and is composed *below* anything you add, so your own additions
-can make it stricter, never weaker.
+context indefinitely.
+
+Before every fact, revision, and note write, a local secret scanner checks the
+candidate text. The scanner covers known provider tokens, passwords, private
+keys, authenticated connection strings, bearer credentials, and other
+credential-shaped values. The scanner is broader than the memory policy: the
+policy blocks high-confidence credential findings and does not treat every
+opaque identifier, UUID, hash, or placeholder as a secret. A blocked write
+returns a short explanation with the triggering line and the credential value
+redacted, so the model can correct itself without receiving the secret back.
+
+The check is deterministic code, not just an instruction to the model. It runs
+offline and never sends the candidate text for provider validation. No detector
+can find every possible secret, and this guard protects permanent memory only;
+it cannot undo a secret that was already sent in the conversation or to a model.
 
 ## Install
 

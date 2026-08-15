@@ -194,7 +194,10 @@ use the project memory when you leave it out.
 ## Never store a secret
 
 Not a token, not a key, not a password, not the contents of a \`.env\`. Store where
-it lives instead. The credentials section says the rest, and it is not optional.`;
+it lives instead. A deterministic local guard also checks every write. If it
+refuses a call, do not retry the same text: read its redacted trigger line,
+remove the credential value, and store only where it lives or what kind it is.
+The credentials section says the rest, and it is not optional.`;
 
 const placement = `# Which memory a fact belongs in
 

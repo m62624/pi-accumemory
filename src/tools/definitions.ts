@@ -229,8 +229,10 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				"Do not store what the transcript already shows: a file you read, a command " +
 				"that ran, a summary of what you just did. NEVER store credentials, tokens, " +
 				"keys or .env contents; store where they live instead. This refuses on its " +
-				"own to write something the memory already holds, so there is no need to " +
-				"search first.",
+				"own to write something the memory already holds, and a local secret guard " +
+				"blocks credential-shaped text before it reaches permanent storage. If the " +
+				"guard refuses a call, do not retry the same text: use its redacted trigger " +
+				"line and store only where the credential lives.",
 			parameters: {
 				type: "object",
 				properties: {

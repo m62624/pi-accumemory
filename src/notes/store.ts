@@ -20,6 +20,10 @@
  */
 
 import type { FileOps } from "../fs-ops.ts";
+import {
+	defaultSecretGuard,
+	type SecretGuard,
+} from "../security/secret-guard.ts";
 import type { WritableMemory } from "../storage/port.ts";
 
 /** A note id is a bare identifier - nothing that can act as a path. */
@@ -42,6 +46,7 @@ export interface NoteStoreOptions {
 	dir: string;
 	flavour: PathFlavour;
 	newId?: () => string;
+	secretGuard?: SecretGuard;
 }
 
 export interface NoteRef {
@@ -71,11 +76,19 @@ export class UnknownNoteError extends Error {
 	}
 }
 
+export class SecretBlockedError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "SecretBlockedError";
+	}
+}
+
 export class NoteStore {
 	private readonly fs: FileOps;
 	private readonly dir: string;
 	private readonly flavour: PathFlavour;
 	private readonly newId: () => string;
+	private readonly secretGuard: SecretGuard;
 
 	constructor(
 		private readonly memory: WritableMemory,
@@ -85,9 +98,14 @@ export class NoteStore {
 		this.dir = options.dir;
 		this.flavour = options.flavour;
 		this.newId = options.newId ?? defaultId;
+		this.secretGuard = options.secretGuard ?? defaultSecretGuard;
 	}
 
 	async create(title: string, content: string): Promise<NoteRef> {
+		await this.checkSecret([
+			{ label: "note title", text: title },
+			{ label: "note body", text: content },
+		]);
 		const noteId = this.newId();
 		assertNoteId(noteId);
 		await this.fs.mkdir(this.dir);
@@ -142,9 +160,13 @@ export class NoteStore {
 		assertNoteId(noteId);
 		const pointer = await this.pointer(noteId);
 		if (pointer === undefined) throw new UnknownNoteError(noteId);
+		const newTitle = title ?? pointer.title;
+		await this.checkSecret([
+			{ label: "note title", text: newTitle },
+			{ label: "note body", text: content },
+		]);
 		await this.fs.writeFile(this.nativePath(noteId), content);
 
-		const newTitle = title ?? pointer.title;
 		// `revise`, not a second `remember`: two pointers to one body would
 		// diverge, and forgetting one would leave the other lying.
 		const stored = await this.memory.revise(pointer.factId, {
@@ -158,6 +180,18 @@ export class NoteStore {
 			},
 		});
 		return { noteId, title: newTitle, factId: stored.id };
+	}
+
+	private async checkSecret(
+		parts: ReadonlyArray<{ label: string; text: string }>,
+	): Promise<void> {
+		const result = await this.secretGuard.check(parts);
+		if (result.blocked) {
+			throw new SecretBlockedError(
+				result.message ??
+					"Not stored: sensitive credential material was detected.",
+			);
+		}
 	}
 
 	async remove(noteId: string): Promise<boolean> {

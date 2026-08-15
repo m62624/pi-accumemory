@@ -9,19 +9,11 @@ function fakeUi() {
 			events.push(`notify:${type}:${message}`),
 		setStatus: (key: string, text: string | undefined) =>
 			events.push(`status:${key}:${text ?? "clear"}`),
-		setWidget: (
-			key: string,
-			content: string[] | undefined,
-			options?: { placement?: "aboveEditor" | "belowEditor" },
-		) =>
-			events.push(
-				`widget:${key}:${content?.join("|") ?? "clear"}:${options?.placement ?? "default"}`,
-			),
 	};
 }
 
 describe("createBackgroundProgress", () => {
-	it("shows an English notification and an animated widget", () => {
+	it("shows an English notification and an animated status", () => {
 		const ui = fakeUi();
 		let tick: (() => void) | undefined;
 		const progress = createBackgroundProgress({
@@ -37,7 +29,7 @@ describe("createBackgroundProgress", () => {
 		const run = progress.begin("consolidation");
 		expect(ui.events).toContain("notify:info:Memory consolidation started.");
 		expect(ui.events).toContain(
-			"widget:longterm-memory:Memory consolidation  (background):belowEditor",
+			"status:longterm-memory:Memory consolidation ⠋",
 		);
 
 		const beforeTick = ui.events.length;
@@ -49,7 +41,7 @@ describe("createBackgroundProgress", () => {
 		expect(ui.events.at(-1)).toBe("notify:info:Memory consolidation finished.");
 	});
 
-	it("keeps the widget static while the status spinner animates", () => {
+	it("does not add a second in-editor surface", () => {
 		const ui = fakeUi();
 		let tick: (() => void) | undefined;
 		const progress = createBackgroundProgress({
@@ -62,13 +54,14 @@ describe("createBackgroundProgress", () => {
 		});
 
 		const run = progress.begin("review");
-		const widgetUpdates = () =>
-			ui.events.filter((event) => event.startsWith("widget:")).length;
-		const beforeTicks = widgetUpdates();
+		const statusUpdates = () =>
+			ui.events.filter((event) => event.startsWith("status:")).length;
+		const beforeTicks = statusUpdates();
 		tick?.();
 		tick?.();
-		expect(widgetUpdates()).toBe(beforeTicks);
+		expect(statusUpdates()).toBeGreaterThan(beforeTicks);
 		expect(ui.events.join("\n")).toContain("Memory review ⠙");
+		expect(ui.events.some((event) => event.startsWith("widget:"))).toBe(false);
 		run.cancel();
 	});
 
@@ -80,5 +73,45 @@ describe("createBackgroundProgress", () => {
 		expect(ui.events).toContain(
 			"notify:warning:Memory review interrupted. Changes already saved remain.",
 		);
+	});
+
+	it("reports every terminal result", () => {
+		const ui = fakeUi();
+		const progress = createBackgroundProgress({
+			ui: () => ui,
+			setTimer: () => 1,
+			clearTimer: () => {},
+		});
+
+		progress.begin("consolidation").end("nothing");
+		progress.begin("consolidation").end("interrupted");
+		progress.begin("consolidation").end("failed");
+
+		expect(ui.events).toContain(
+			"notify:info:Memory consolidation finished — nothing to change.",
+		);
+		expect(ui.events).toContain(
+			"notify:warning:Memory consolidation interrupted. Changes already saved remain.",
+		);
+		expect(ui.events).toContain(
+			"notify:error:Memory consolidation failed. The next run will retry.",
+		);
+	});
+
+	it("ignores an older run after a newer run starts", () => {
+		const ui = fakeUi();
+		const progress = createBackgroundProgress({
+			ui: () => ui,
+			setTimer: () => 1,
+			clearTimer: () => {},
+		});
+
+		const oldRun = progress.begin("consolidation");
+		const newRun = progress.begin("review");
+		const before = [...ui.events];
+		oldRun.end("completed");
+
+		expect(ui.events).toEqual(before);
+		newRun.cancel();
 	});
 });

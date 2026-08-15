@@ -102,6 +102,26 @@ describe("NoteStore", () => {
 		await expect(notes.update("ghost", "x")).rejects.toThrow(/unknown note/i);
 	});
 
+	it("checks a note before touching either disk or its pointer", async () => {
+		const guarded = new NoteStore(memory, {
+			fs,
+			dir: "/notes/common",
+			flavour: path.posix,
+			secretGuard: {
+				check: async () => ({
+					blocked: true,
+					message: "Not stored: synthetic credential was redacted.",
+				}),
+			},
+		});
+
+		await expect(guarded.create("Secrets", "synthetic")).rejects.toThrow(
+			/synthetic credential/i,
+		);
+		expect(fs.files.size).toBe(0);
+		expect(memory.facts).toHaveLength(0);
+	});
+
 	it("removes the body and the pointer together", async () => {
 		const { noteId } = await notes.create("Overview", "body");
 		expect(await notes.remove(noteId)).toBe(true);

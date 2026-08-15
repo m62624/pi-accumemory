@@ -205,8 +205,15 @@ does not read or add messages to the conversation.
 
 Each automatic job uses a temporary in-memory Pi session. It is not written to
 the session JSONL files and does not appear in the `/resume` picker. The main UI
-shows English start/finish notifications and a small animated status widget;
+shows start/finish notifications and one small animated status line;
 the job's memory writes still go to the normal database immediately.
+
+Before any fact, revision, or note is persisted, a local secret scanner checks
+the candidate. High-confidence credential findings are blocked, with a safe
+redacted trigger line returned to the model; ordinary identifiers, hashes and
+placeholders are not automatically blocked. The scan is offline and does not
+send candidate text to a provider. This protects permanent memory, not the
+conversation or any model context that already saw the text.
 
 The first phase reads the transcript, so it only ever weighs what was just
 discussed. The separate review leaves no fact stranded: a fact learned six

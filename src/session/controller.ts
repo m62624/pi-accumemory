@@ -32,6 +32,11 @@ import {
 import type { NoteStore } from "../notes/store.ts";
 import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
+import {
+	defaultSecretGuard,
+	type SecretGuard,
+	type SecretWritePart,
+} from "../security/secret-guard.ts";
 import type { Settings } from "../settings/defaults.ts";
 import { isEmbedderFailure, isVectorSpaceMismatch } from "../storage/errors.ts";
 import {
@@ -101,6 +106,8 @@ export interface ControllerDeps {
 	 * log only decides what a later consolidation pass is shown.
 	 */
 	stumbles?: StumbleLog;
+	/** The hard, local gate in front of every model-created fact write. */
+	secretGuard?: SecretGuard;
 }
 
 export interface AskInput {
@@ -124,6 +131,7 @@ export class MemoryController {
 	private readonly askGuard = new AskGuard();
 	private readonly repeatGuard = new RepeatGuard();
 	private readonly now: () => Date;
+	private readonly secretGuard: SecretGuard;
 	/** The `longterm_about` pages, and this turn's budget for reading them. */
 	readonly about: AboutDesk;
 
@@ -146,6 +154,7 @@ export class MemoryController {
 		this.refresh = new RefreshPolicy(deps.settings.memory.refresh);
 		this.nudge = new WriteNudge(deps.settings.memory.nudge);
 		this.now = deps.now ?? (() => new Date());
+		this.secretGuard = deps.secretGuard ?? defaultSecretGuard;
 		this.manifestPending = deps.settings.memory.manifest;
 		this.about = new AboutDesk({
 			settings: deps.settings,
@@ -549,6 +558,13 @@ export class MemoryController {
 		this.refresh.noteMemoryChanged();
 	}
 
+	private async secretRefusal(
+		parts: readonly SecretWritePart[],
+	): Promise<string | undefined> {
+		const result = await this.secretGuard.check(parts);
+		return result.blocked ? result.message : undefined;
+	}
+
 	async remember(input: RememberInputForModel): Promise<string> {
 		const scope = input.scope ?? "project";
 		if (scope === "both") {
@@ -565,6 +581,12 @@ export class MemoryController {
 
 		const suggestions = await this.tagSuggestions(memory, input.tags ?? []);
 		const entity = input.entity ?? this.defaultEntity(scope);
+		const secretRefusal = await this.secretRefusal([
+			{ label: "fact", text: input.text },
+			{ label: "entity", text: entity },
+			{ label: "tags", text: (input.tags ?? []).join(" ") },
+		]);
+		if (secretRefusal !== undefined) return secretRefusal;
 		let stored: Awaited<ReturnType<typeof memory.rememberGuarded>>;
 		try {
 			stored = await memory.rememberGuarded({
@@ -739,6 +761,11 @@ export class MemoryController {
 		}
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
+		const secretRefusal = await this.secretRefusal([
+			{ label: "fact", text },
+			{ label: "tags", text: (tags ?? []).join(" ") },
+		]);
+		if (secretRefusal !== undefined) return secretRefusal;
 		const current = await memory.get(id);
 		if (current === null) return this.missing(id, scope, "revise");
 		// A standing rule can be made longer by a revision as easily as by a

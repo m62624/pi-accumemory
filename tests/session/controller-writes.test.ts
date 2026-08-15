@@ -11,12 +11,15 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { NoteStore } from "../../src/notes/store.ts";
 import { ProjectRouter } from "../../src/router/router.ts";
+import type { SecretGuard } from "../../src/security/secret-guard.ts";
 import { MemoryController } from "../../src/session/controller.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings/defaults.ts";
 import { FakeFs } from "../helpers/fake-fs.ts";
 import { FakeMemory } from "../helpers/fake-memory.ts";
 
-function build(options: { withProject?: boolean } = {}) {
+function build(
+	options: { withProject?: boolean; secretGuard?: SecretGuard } = {},
+) {
 	const common = new FakeMemory();
 	const project = options.withProject === false ? undefined : new FakeMemory();
 	const fs = new FakeFs();
@@ -25,7 +28,12 @@ function build(options: { withProject?: boolean } = {}) {
 		common,
 		...(project === undefined ? {} : { project }),
 		projectName: "app",
-		notesCommon: new NoteStore(common, { fs, dir: "/c", flavour: path.posix }),
+		notesCommon: new NoteStore(common, {
+			fs,
+			dir: "/c",
+			flavour: path.posix,
+			...{ secretGuard: options.secretGuard },
+		}),
 		...(project === undefined
 			? {}
 			: {
@@ -33,9 +41,11 @@ function build(options: { withProject?: boolean } = {}) {
 						fs,
 						dir: "/p",
 						flavour: path.posix,
+						...{ secretGuard: options.secretGuard },
 					}),
 				}),
 		router: new ProjectRouter(common),
+		secretGuard: options.secretGuard,
 	});
 	return { controller, common, project, fs };
 }
@@ -95,6 +105,44 @@ describe("MemoryController.revise", () => {
 		await controller.remember({ text: "x", scope: "both" });
 		expect(project?.live()).toHaveLength(0);
 		expect(common.live()).toHaveLength(0);
+	});
+});
+
+describe("the secret write gate", () => {
+	it("blocks before the memory engine receives the candidate", async () => {
+		const secretGuard = {
+			check: async () => ({
+				blocked: true,
+				message:
+					"Not stored: synthetic credential on line 2: API_TOKEN=[redacted].",
+			}),
+		};
+		const { controller, project } = build({ secretGuard });
+
+		const answer = await controller.remember({
+			text: "API_TOKEN=synthetic",
+		});
+
+		expect(answer).toMatch(/not stored/i);
+		expect(answer).toContain("API_TOKEN=[redacted]");
+		expect(project?.facts).toHaveLength(0);
+	});
+
+	it("blocks a revision before replacing the existing fact", async () => {
+		const secretGuard = {
+			check: async (parts: readonly { text: string }[]) => ({
+				blocked: parts.some((part) => part.text.includes("blocked")),
+				message: "Not stored: the credential was redacted.",
+			}),
+		};
+		const { controller, project } = build({ secretGuard });
+		const stored = await controller.remember({ text: "the original fact" });
+		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
+
+		await expect(
+			controller.revise(id, "this revision is blocked", "project"),
+		).resolves.toMatch(/not stored/i);
+		expect(project?.live()[0]?.text).toBe("the original fact");
 	});
 });
 

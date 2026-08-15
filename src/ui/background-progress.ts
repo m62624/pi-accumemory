@@ -2,7 +2,7 @@
  * User-facing progress for the otherwise in-memory memory agents.
  *
  * The agent conversation stays private and ephemeral; this is only a small
- * status line, an animated widget, and lifecycle notifications. Keeping this
+ * status line and lifecycle notifications. Keeping this
  * separate from the pass itself means the memory runner remains usable in
  * tests and in non-interactive callers.
  */
@@ -17,11 +17,6 @@ export type BackgroundResult =
 export interface BackgroundProgressUi {
 	notify(message: string, type?: "info" | "warning" | "error"): void;
 	setStatus(key: string, text: string | undefined): void;
-	setWidget(
-		key: string,
-		content: string[] | undefined,
-		options?: { placement?: "aboveEditor" | "belowEditor" },
-	): void;
 }
 
 export interface BackgroundProgressOptions {
@@ -53,15 +48,13 @@ export function createBackgroundProgress(options: BackgroundProgressOptions): {
 	const setTimer = options.setTimer ?? ((fn, ms) => setInterval(fn, ms));
 	const clearTimer =
 		options.clearTimer ?? ((handle) => clearInterval(handle as never));
-	// Pi rebuilds a widget on every setWidget call. One update per second keeps
-	// the spinner alive without turning a small indicator into a screen-wide
-	// repaint loop.
+	// One update per second keeps the footer spinner alive without turning a
+	// small indicator into a screen-wide repaint loop.
 	const intervalMs = options.intervalMs ?? 1_000;
 	let timer: unknown;
 	let active: { id: number; job: BackgroundJob; frame: number } | undefined;
 	let nextId = 0;
 	let renderedLine: string | undefined;
-	let renderedWidget: string | undefined;
 
 	const notify = (
 		ui: BackgroundProgressUi,
@@ -86,16 +79,10 @@ export function createBackgroundProgress(options: BackgroundProgressOptions): {
 		if (timer !== undefined) clearTimer(timer);
 		timer = undefined;
 		renderedLine = undefined;
-		renderedWidget = undefined;
 		const ui = options.ui();
 		if (ui === undefined) return;
 		try {
 			ui.setStatus(STATUS_KEY, undefined);
-		} catch {
-			// A stale UI context must not affect the memory pass.
-		}
-		try {
-			ui.setWidget(STATUS_KEY, undefined, { placement: "belowEditor" });
 		} catch {
 			// A stale UI context must not affect the memory pass.
 		}
@@ -106,19 +93,11 @@ export function createBackgroundProgress(options: BackgroundProgressOptions): {
 		const ui = options.ui();
 		if (ui === undefined) return;
 		const label = LABELS[active.job];
-		const line = `${label} ${FRAMES[active.frame]}  (background)`;
+		const line = `${label} ${FRAMES[active.frame]}`;
 		if (line === renderedLine) return;
 		renderedLine = line;
 		try {
 			ui.setStatus(STATUS_KEY, line);
-		} catch {
-			// A stale UI context must not affect the memory pass.
-		}
-		const widgetLine = `${label}  (background)`;
-		if (widgetLine === renderedWidget) return;
-		renderedWidget = widgetLine;
-		try {
-			ui.setWidget(STATUS_KEY, [widgetLine], { placement: "belowEditor" });
 		} catch {
 			// A stale UI context must not affect the memory pass.
 		}
