@@ -2,172 +2,308 @@
 
 Long-term memory for [pi](https://github.com/earendil-works/pi-coding-agent).
 
-A pi session starts from nothing and ends with nothing. This keeps what was
-worth keeping: why the cache in this repository is disabled, which formatter
-this team settled on, that you work in Rust. The model can ask about any of it
-later, including from a different project. Everything is a local file; nothing
-leaves the machine.
+## What problem this solves
 
-Configuration is in **[SETTINGS.md](SETTINGS.md)**. This file explains what the
-thing does and how memories are organised; that one has every key, default and
-procedure.
+A Pi session contains the current conversation. When that session ends, the
+next one does not know the project decisions, working preferences, or facts
+that the model learned earlier. Putting every old conversation into every new
+prompt would be expensive and noisy, and would mix facts from unrelated
+projects.
 
-## Two kinds of memory
+`pi-accumemory` stores selected durable facts locally and retrieves only the
+facts that match the next request. The model decides what is worth saving. The
+extension decides where it goes, prevents credentials from entering permanent
+memory, and keeps the old version when a fact changes.
 
-| | holds | read from |
-|---|---|---|
-| **shared** | what is true of *you* wherever you work | every session, everywhere |
-| **project** | what is true of *this* codebase | sessions in that folder (and its subfolders) |
+This is useful for one person or one local agent working across Pi sessions. It
+is not a transcript archive, a document store, a cloud knowledge base, or a
+multi-user service.
 
-Two databases, not one, because the two answer different questions. A fact about
-this repository's build quirks is noise in every other project; a fact about how
-you like to work is worth carrying into all of them. The model picks when it
-writes, answering one question: would this still be true in another project? Say
-nothing and it gets the project memory. That default earns its place, because
-the two mistakes do not cost the same. A fact filed in the wrong project is
-merely absent elsewhere. A fact filed in the shared memory is present
-everywhere, permanently.
+## How the pieces fit
 
-The shared database also holds the router: the table saying which folder uses
-which project memory.
+The storage engine is [plugmem](https://github.com/m62624/plugmem), an
+embedded, file-backed database. There is no server or separate memory service.
+`pi-accumemory` adds the Pi controller and memory policies around it:
 
-## Which memory a folder gets
+```text
+Pi request
+    ↓
+memory controller
+    ├─ chooses shared or project memory
+    ├─ asks plugmem for ranked context
+    ├─ checks model-created writes for credentials
+    └─ runs consolidation and review when Pi is idle
+    ↓
+two local plugmem databases
+```
 
-Four ways, in the order they are tried.
+The controller receives a Pi request, asks the appropriate database for a
+small ranked context block, and adds that block to the next model prompt. When
+the model calls a memory tool, the controller checks the write and passes it to
+plugmem. Background consolidation uses the same write path.
 
-**1. It inherits one.** Walking up from where pi started, the first folder that
-already has a memory wins. So one memory covers a whole tree: a subfolder uses
-the project's, and binding a monorepo root gives every package inside it the
-same memory.
+## Why there are two databases
 
-**2. A marker is found.** Only if nothing above has a memory. `.git` by default,
-`memory.project.markers` to name others (`Cargo.toml`, `go.mod`, whatever this
-machine uses). The nearest match wins, the walk is bounded, and your home
-directory is never a project by marker however many dotfiles repositories live
-there.
+The extension keeps shared and project memory in separate plugmem files. They
+answer different questions and have different visibility:
 
-**3. You ask for one, with `/longterm-new`.** For the two cases no rule can decide:
-a folder with no marker that is nonetheless a body of work, and a folder inside
-a project whose facts should not be filed under it. It mints an empty memory
-bound to exactly that folder. Being nearer, it then outranks whatever the folder
-was inheriting, and everything above is untouched.
+| database | stores | used in |
+| --- | --- | --- |
+| shared | facts about the person and general working habits | every project |
+| project | facts about one codebase or work tree | that project and its subfolders |
 
-**4. You attach an existing one, with `/longterm-rebind`.** For a memory that came
-from somewhere else. It lists every memory with its id, size and bound folder,
-you pick, it opens. Both commands reopen in place: no restart.
+For example, "I prefer Rust for systems work" belongs in shared memory. "This
+repository runs Biome before every commit" belongs in the project database.
+The second fact should not appear in an unrelated repository, while the first
+should.
 
-If none of the four applies, the folder has no project memory, and the model is
-told what that costs rather than left to guess: what it stores instead goes to
-the shared memory and shows up in every other project.
+These are separate databases, not two views of one table. They have separate
+fact ids and separate retrieval indexes. `longterm_ask` can query shared
+memory, project memory, or both, then labels the results by scope. A fact is
+not copied from one database to the other unless a consolidation pass is
+explicitly allowed to promote a project fact to shared memory.
 
-Nothing here is guessed from names or git remotes. A wrong guess merges two
-memories, and merged memories cannot be separated again. So the machine shows
-what it has, and a person decides.
+The shared database also contains the router: a small set of facts that maps a
+canonical project folder to its project database. The router is not project
+content.
 
-### Moving between machines
+## Database, retrieval, and consolidation are different things
 
-The database files are portable as they are: plugmem writes a snapshot that is
-byte-identical on Linux, macOS and Windows, so there is no export step. Copy
-`memory/` and `notes/` while pi is not running.
+The database is the durable storage. It holds facts, revisions, tags, entity
+links, metadata, embeddings, and time information.
 
-What does not travel is the binding. A project is found by its absolute path,
-and that path is different on the other machine. So the copied memory arrives
-intact and unreachable, and `/longterm-rebind` is what attaches it.
+Retrieval is a read operation. Given a question and a scope, it searches the
+selected database, ranks candidates, removes facts that are hidden by a newer
+revision, and returns a token-limited context block. Retrieval does not write a
+summary and does not move facts between databases.
+
+Consolidation is a write operation started after a quiet period. It reads new
+transcript material, asks a temporary Pi agent which parts deserve memory, and
+writes the resulting facts through the normal controller. Review is another
+write-capable job, but it reads old facts instead of the transcript.
+
+## What the database contains
+
+A fact is one durable statement. It can have:
+
+- text;
+- an entity, such as `user`, `project:pi-accumemory`, or `note:n1`;
+- tags and opaque metadata;
+- an optional embedding;
+- two time axes: when the statement was true and when the database learned it.
+
+When a fact changes, `revise` closes the old fact and stores a new one. That is
+why an old answer can still be recovered with an `as_of` query. `forget` marks
+a fact as no longer current; maintenance later reclaims its storage.
+
+Long material belongs in a note. A note body lives in a Markdown file and its
+small pointer fact lives in plugmem, so the model can find the note without
+putting the whole document into every recall result.
 
 ## How a question is answered
 
-The store is [plugmem](https://github.com/m62624/plugmem): embedded, no server,
-bitemporal (a fact has both "when we learned it" and "when it was true").
+Recall is hybrid. It does not choose between keyword search and vector search;
+it can use both, along with relationships and time.
 
-A recall does not search one index. Four sources run, each producing its own
-ranked list:
+| source | algorithm | finds | needs an embedder |
+| --- | --- | --- | --- |
+| lexical | BM25 over the fact text | exact terms and related words | no |
+| semantic | int8 cosine similarity; flat scan for small sets and HNSW for larger sets | similar meaning when wording differs | yes |
+| graph | typed entity edges, with bounded traversal | facts related through people, projects, and other entities | no |
+| temporal | indexes over recorded and valid time ranges | what was known or true at a particular time | no |
 
-- **lexical** — BM25 over the fact text;
-- **semantic** — vector similarity, if an embedder is configured. Without one
-  everything else still works, only wording has to match more closely;
-- **graph** — facts reachable through entity links, two hops by default and
-  weighted down by distance. The depth is a setting, not a ceiling;
-- **temporal** — a time range, for "what happened that week".
+The engine ranks each source separately and combines the ranks with reciprocal
+rank fusion:
 
-They are fused by reciprocal rank, `Σ w/(60 + rank)`, instead of by comparing
-scores: BM25 scores and cosine distances are not on the same scale, and
-calibrating them against each other is a tuning problem nobody wins. Then a
-recency boost (half-life 180 days), then deduplication down each fact's revision
-chain to its current version, then greedy selection under a token budget.
+```text
+score = Σ(weight / (60 + rank))
+```
 
-Tags, entity and time act as filters over that, not as sources of their own.
+It then applies a recency boost, collapses a revision chain to the current
+fact, and selects results under the configured token budget. Tags, entities,
+and time ranges narrow the candidates; they are filters, not extra retrieval
+algorithms.
 
-Two consequences follow. A recall with only filters and no question returns
-nothing, because filters narrow and do not retrieve. And an embedder is
-optional but changes what "remembering" means: with one, a question worded
-differently from the stored fact still finds it.
+Without an embedder, a query usually needs to share words with the stored fact.
+With an embedder, a question such as "which runtime do I prefer?" can find a
+fact written as "I use Tokio".
+BM25, graph, and time retrieval continue to work when no model or network is
+available.
+
+For the engine's own file format, bitemporal model, HNSW implementation, and
+benchmarks, see the [plugmem README](https://github.com/m62624/plugmem#what-recall-does).
+
+## Who should use it
+
+It is useful when the same Pi installation serves several sessions and the
+model repeatedly needs the same small set of facts:
+
+- preferences that apply across repositories;
+- project decisions and local conventions;
+- facts that changed over time and may need historical answers;
+- relationships between projects, notes, people, and tools;
+- a local agent that must work without a memory server.
+
+It is not a replacement for the Pi transcript, a document store, or a team
+knowledge system. Put a long specification in a note or in the repository.
+Store only the fact that lets the model decide when to read it.
+
+## How a folder gets a project database
+
+The model chooses shared memory for facts that apply across repositories and
+project memory for facts tied to the current codebase. When it does not specify
+a scope, the controller uses project memory when a project database exists.
+
+The controller checks these cases in order:
+
+1. An ancestor already has a bound memory. The nearest binding wins.
+2. No binding exists, so project markers are checked. `.git` is the default;
+   `memory.project.markers` can add names such as `Cargo.toml` or `go.mod`.
+3. `/longterm-new` creates an empty memory for the exact folder.
+4. `/longterm-rebind` attaches an existing memory to the folder.
+
+The walk has a parent limit. The home directory is not made into a project
+just because it contains repositories. If no project memory applies, writes
+go to shared memory and the model is told that they will be visible elsewhere.
+
+The database itself is portable. The binding uses an absolute path, so copying
+`memory/` to another machine requires `/longterm-rebind` there.
 
 ## What the model can do
 
-Every tool is prefixed `longterm_`. Deliberately: `pi-telegram-manager`
-registers `manager_remember` over the same engine, about a person in a chat, and
-two plausible `remember` tools with nothing but a name between them is how a
-fact ends up where nobody looks for it.
+All model tools start with `longterm_` so they are distinct from tools provided
+by other Pi extensions.
 
-| tool | what it is for |
-|---|---|
-| `longterm_ask` | ask this project's memory, or the shared one, or both |
-| `longterm_ask_project` | ask a different project's memory |
-| `longterm_projects` | list the projects that have one |
+| tool | purpose |
+| --- | --- |
+| `longterm_ask` | retrieve shared memory, project memory, or both |
+| `longterm_ask_project` | retrieve another project's memory |
+| `longterm_projects` | list known projects |
 | `longterm_remember` | store one durable statement |
-| `longterm_revise` | replace a fact that changed; the old version stays as history |
-| `longterm_forget` | drop one that was wrong, or one whose moment has passed |
-| `longterm_forget_many` | drop a list of them in one write — duplicates, mostly |
-| `longterm_tags` | the tags in use, with counts |
-| `longterm_link` / `longterm_unlink` | typed relationships between entities |
-| `longterm_note_*` | create, read, update and delete notes too long to be facts |
-| `longterm_about` | how this memory itself works, one topic per call |
+| `longterm_revise` | replace a changed fact while keeping its history |
+| `longterm_forget` / `longterm_forget_many` | mark incorrect or expired facts as forgotten |
+| `longterm_tags` | list tags and their current counts |
+| `longterm_link` / `longterm_unlink` | add or close typed entity relationships |
+| `longterm_note_*` | create, read, update, and delete longer Markdown notes |
+| `longterm_about` | read the package's own documentation pages |
 
-`longterm_about` is the odd one out: it reads no facts. A model asked how its
-memory works answers from whatever it can reconstruct, which is a plausible
-memory system and not this one, and then acts on that description. So the answer
-is a document in this package instead: eight topics (`system`, `turn`, `scopes`,
-`writing`, `recall`, `consolidation`, `settings`, `current_settings`), one per
-call, three per turn. `current_settings` prints the real paths and the values
-this session is running with, resolved by the code that opened them, so "where
-do I change that" is answered with a path rather than a convention.
+`longterm_about` does not retrieve memory facts. It reads fixed documentation
+pages for topics such as `system`, `scopes`, `recall`, `consolidation`, and
+`settings`. `current_settings` reports the paths and values used by the live
+session.
 
-Commands, for you rather than the model: `/longterm-status`, `/longterm-new`,
-`/longterm-rebind`, `/longterm-consolidate`, `/longterm-reembed`.
+For the person at the terminal, the commands are `/longterm-status`,
+`/longterm-new`, `/longterm-rebind`, `/longterm-consolidate`, and
+`/longterm-reembed`.
 
-## What it does on its own
+## What happens when the model writes
 
-**A background pass, when the session goes quiet.** It re-reads the transcript
-pi already writes to disk and curates: stores what was missed, collapses
-"playing at 20:30 on Saturday" and "playing at 21:00 on Tuesday" into one
-undated fact about a habit, drops dated facts whose dates have passed. It stops
-the instant you type, and whatever it had decided by then is already saved.
+The normal path is:
 
-**It keeps out of the prompt's way.** What it adds sits below the transcript and
-is rebuilt on three events only: a new message from you, a compaction, or ten
-tool calls. Between those the prompt is byte-identical, so the backend's prefix
-cache survives. Priced rather than assumed: `tests/session/prefix-reuse.test.ts`
-counts the characters, and keeps the counter-example that costs 16,000 of them
-per new fact when the same block sits above the transcript instead of below.
+```text
+model calls longterm_remember
+    ↓
+controller chooses the memory and entity
+    ↓
+local secret guard checks the candidate
+    ↓
+plugmem remember_guarded checks nearby facts and writes the fact
+```
 
-**It will not store credentials.** Not tokens, not keys, not passwords, not the
-contents of `.env`. This memory is permanent and is read at the start of every
-session in every project, so a secret written into it is re-injected into
-context indefinitely.
+The duplicate check is scoped to the fact's entity. The engine reports nearby
+facts and possible conflicts; the model decides whether to revise, forget, or
+keep both.
 
-Before every fact, revision, and note write, a local secret scanner checks the
-candidate text. The scanner covers known provider tokens, passwords, private
-keys, authenticated connection strings, bearer credentials, and other
-credential-shaped values. The scanner is broader than the memory policy: the
-policy blocks high-confidence credential findings and does not treat every
-opaque identifier, UUID, hash, or placeholder as a secret. A blocked write
-returns a short explanation with the triggering line and the credential value
-redacted, so the model can correct itself without receiving the secret back.
+The secret guard runs before fact, revision, and note persistence. It uses
+`@visulima/secret-scanner` plus local checks for common ENV assignments, JWTs,
+private-key headers, authenticated database URLs, and bearer credentials. The
+scanner is configured for offline operation, so candidate text is not sent to a
+provider for validation.
 
-The check is deterministic code, not just an instruction to the model. It runs
-offline and never sends the candidate text for provider validation. No detector
-can find every possible secret, and this guard protects permanent memory only;
-it cannot undo a secret that was already sent in the conversation or to a model.
+When a write is refused, the model receives a short explanation and a masked
+trigger window. It must choose between two actions:
+
+- retry with a sanitized statement that keeps useful context, such as "the
+  service reads its API credential from an environment variable";
+- do not retry when the information is not useful as durable memory.
+
+The guard does not silently rewrite the original call. It never puts the
+credential value back into its refusal message. This protects permanent memory;
+it cannot erase text that has already appeared in the conversation or reached a
+model.
+
+Ordinary UUIDs, hashes, placeholders, and opaque identifiers are not rejected
+just because they are long. The detector is intentionally broad around
+credential context and conservative around unlabelled identifiers. No local
+detector can recognize every possible secret, so credentials should still stay
+out of prompts and transcripts whenever possible.
+
+## Automatic memory work
+
+The model writes during a normal turn. Two separate background jobs handle
+memory it missed and facts that have become old enough to inspect.
+
+### Consolidation after quiet time
+
+After Pi emits `agent_settled`, the extension waits seven minutes by default.
+That event means the model response and its tool calls are finished. A tool
+call does not start the timer by itself. If a new user message arrives, the
+timer is cancelled and starts over after the next settled turn.
+
+The consolidation agent reads new transcript material, stores durable facts it
+finds, merges repeated dated observations into a broader fact, and drops facts
+whose validity has ended. It stops when you type. Its temporary Pi session is
+not written to the Pi JSONL history and does not appear in `/resume`.
+
+### Review every 30 minutes
+
+Review is a separate scheduler. Every 30 minutes by default, while Pi is
+running, it shows the model a window of older stored facts. It does not need a
+new user message and does not read the conversation. The review cursor moves
+forward and wraps, so the whole memory is inspected over time. A fact is not
+deleted merely because it is old; the model must decide that it is expired,
+duplicated, or contradicted.
+
+The two jobs have separate schedules and budgets. The seven-minute timer is
+for new transcript material. The 30-minute timer is for old facts. Their
+activity counters are reset when the corresponding job starts, so a job does
+not immediately trigger another one.
+
+### Reminder to save
+
+The live model also gets a reminder after 20 user messages or 30 tool calls
+without a memory write. The reminder is not a save operation and does not start
+consolidation. After it appears, it stays quiet for 15 turns. A write resets
+the counters.
+
+The full settings reference, including how to change these values, is in
+[SETTINGS.md](SETTINGS.md).
+
+## What the person sees
+
+Background jobs show a start notification, one animated status line, and a
+finish or interruption notification. The agent conversation remains private and
+ephemeral. Memory writes go to the normal database immediately.
+
+## Where files live
+
+```text
+<agentDir>/extensions/pi-accumemory/
+  settings.json                  extension settings
+  memory/config.toml             plugmem configuration
+  memory/db/common.plugmem       shared facts and the project router
+  memory/db/p_<projectId>.plugmem
+  notes/                         Markdown note bodies
+  instructions/defaults/         bundled instructions, refreshed on upgrade
+  instructions/append/           user instructions, never touched
+  state/consolidation.json       transcript-pass cursor
+  state/review.json              old-fact review cursor
+  state/stumbles.json            repeated mistakes across sessions
+```
+
+Copy `memory/` and `notes/` while Pi is not running. Rebind the copied project
+memory on the destination machine because absolute folder bindings do not move
+with the files.
 
 ## Install
 
@@ -175,43 +311,22 @@ it cannot undo a secret that was already sent in the conversation or to a model.
 pi package add pi-accumemory
 ```
 
-It works with no configuration. To have questions match facts worded
-differently, switch on an embedder in the engine's own `config.toml`. See
-[SETTINGS.md](SETTINGS.md#the-embedder-in-configtoml).
-
-## Where things live
-
-```
-<agentDir>/extensions/pi-accumemory/
-  settings.json                  see SETTINGS.md
-  memory/config.toml             plugmem's own configuration; yours to edit
-  memory/db/common.plugmem       facts about you, and the project router
-  memory/db/p_<projectId>.plugmem
-  notes/                         note bodies, each with a pointer fact
-  instructions/defaults/         ours, rewritten on upgrade
-  instructions/append/           yours, never touched
-  state/consolidation.json       how far the background pass has read
-  state/review.json              how far the review job has walked
-  state/stumbles.json            mistakes repeated across sessions
-```
-
-Paths inside the databases are stored in one canonical form, forward slashes
-with the drive letter preserved, and converted to the host's native form only
-where they touch the disk. A memory written on Windows reads correctly on Linux.
+The extension works with defaults. To match questions by meaning as well as by
+words, configure an embedder in plugmem's `config.toml`; see
+[the embedder section in SETTINGS.md](SETTINGS.md#the-embedder-in-configtoml).
 
 ## Development
 
 ```sh
 npm install
-npm run ci          # biome + tsc + vitest + a packaging dry run
-npm run coverage    # vitest with v8 coverage
+npm run ci          # Biome, TypeScript, tests, and package dry run
+npm run coverage    # Vitest with V8 coverage
 ```
 
-Tests run against an in-memory fake for speed and against the real plugmem addon
-in `tests/integration/` for truth. The fake is deliberately faithful about the
-things the code depends on: fact ids start at zero, a filter-only recall returns
-nothing, `revise` closes instead of overwriting. A forgiving fake is a fake that
-lets bugs through.
+Tests use in-memory fakes for fast unit coverage and the real plugmem addon in
+`tests/integration/`. The fakes preserve the engine behavior this extension
+depends on: fact ids start at zero, filter-only recall returns nothing, and
+`revise` closes rather than overwrites a fact.
 
 ## Licence
 
