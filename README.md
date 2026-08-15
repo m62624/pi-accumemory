@@ -308,7 +308,7 @@ with the files.
 ## Install
 
 ```sh
-pi package add pi-accumemory
+pi install npm:pi-accumemory
 ```
 
 The extension works with defaults. To match questions by meaning as well as by
