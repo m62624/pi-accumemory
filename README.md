@@ -180,6 +180,7 @@ by other Pi extensions.
 | `longterm_ask_project` | retrieve another project's memory |
 | `longterm_projects` | list known projects |
 | `longterm_remember` | store one durable statement |
+| `longterm_remember_many` | store several independent atomic statements in one call; reports each item as stored, blocked, or error |
 | `longterm_revise` | replace a changed fact while keeping its history |
 | `longterm_forget` / `longterm_forget_many` | mark incorrect or expired facts as forgotten |
 | `longterm_tags` | list tags and their current counts |

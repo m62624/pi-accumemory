@@ -33,6 +33,8 @@ export function lazyController(
 		projects: async () => get()?.controller.projects() ?? MEMORY_UNAVAILABLE,
 		remember: async (input) =>
 			get()?.controller.remember(input) ?? MEMORY_UNAVAILABLE,
+		rememberMany: async (inputs) =>
+			get()?.controller.rememberMany(inputs) ?? MEMORY_UNAVAILABLE,
 		revise: async (...args) =>
 			get()?.controller.revise(...args) ?? MEMORY_UNAVAILABLE,
 		forget: async (...args) =>

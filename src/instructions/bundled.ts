@@ -107,8 +107,10 @@ Work through this every turn, in this order:
 3. **Do the work.** If the code holds a decision you do not understand - a
    disabled optimisation, an odd flag, a workaround, a TODO with no reason - ask
    the memory why before you change it.
-4. **Learned something durable?** One \`longterm_remember\` per statement. Did the
-   user correct you this turn - "no, do not do that", "I asked for X" - that IS
+4. **Learned something durable?** One atomic fact per statement. Use
+   \`longterm_remember\` for one fact and \`longterm_remember_many\` when several
+   independent facts were learned together. Did the user correct you this turn -
+   "no, do not do that", "I asked for X" - that IS
    the durable thing, and it is the one most often let go.
 5. **Reply.**
 
@@ -127,6 +129,7 @@ moment for a memory call at all.
 | this task feels like one already solved elsewhere | \`longterm_projects\`, then \`longterm_ask_project\` |
 | you learned something durable | \`longterm_remember\` |
 | the user corrected you, or asked you to work differently from now on | \`longterm_remember\` |
+| several independent durable facts were learned together | \`longterm_remember_many\` |
 | a stored fact changed | \`longterm_revise\` (needs \`scope\`) |
 | a stored fact was never true, or its date has passed | \`longterm_forget\` (needs \`scope\`) |
 | several stored facts must go - duplicates, or a group that was wrong together | \`longterm_forget_many\` (needs \`scope\`) |
@@ -175,10 +178,15 @@ holds, so there is no need to search before writing.
 
 ## How many facts per call
 
-- **\`longterm_remember\`: one call, one fact.** One fact is one statement - split
-  a compound sentence into separate calls with *different* text. Sending the same
-  call twice does not store it harder: it was either kept or refused as a
-  duplicate, and either way the next move is to carry on.
+- **\`longterm_remember\` and \`longterm_remember_many\`: one call, one fact in the
+  single form, and one fact per item in the many form.** The single tool takes
+  one fact; the many tool takes a \`facts\` list. Split a
+  compound sentence into separate items with *different* text even in the batch.
+  The batch is not a transaction: each item is processed independently, earlier
+  stored items remain if a later item errors, and every result says \`stored\`,
+  \`blocked\` with a reason, or \`error\`. Sending the same fact twice does not store
+  it harder: it is either kept or blocked as a duplicate, and the next move is
+  to carry on.
 - **\`longterm_forget\`: one call, one id** - \`id: 3\`.
 - **\`longterm_forget_many\`: one call, the whole list** - \`ids: [3, 4, 5]\`.
   Clearing duplicates is ONE call of this, never one \`longterm_forget\` per id.

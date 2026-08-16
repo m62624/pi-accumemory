@@ -78,6 +78,7 @@ describe("the pages", () => {
 			"longterm_ask_project",
 			"longterm_projects",
 			"longterm_remember",
+			"longterm_remember_many",
 			"longterm_revise",
 			"longterm_forget",
 			"longterm_forget_many",

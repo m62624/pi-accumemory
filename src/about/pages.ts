@@ -125,7 +125,9 @@ Ask the person only when the memory answered with nothing.
 
 ## 4. Did you learn something that outlives this session?
 
-One \`longterm_remember\` per statement. Not one call with three facts in it.
+One atomic fact per statement. Use \`longterm_remember\` for one fact, or
+\`longterm_remember_many\` when several independent facts were learned together.
+The list still needs one statement per item; it is not a compound-fact escape hatch.
 
 ## 5. Answer.
 
@@ -141,6 +143,7 @@ One row, one call. This table is not a menu of good ideas; it is the mapping.
 | about to ask the user something | \`longterm_ask\` |
 | solved something like this in another project | \`longterm_projects\`, then \`longterm_ask_project\` |
 | learned a durable fact | \`longterm_remember\` |
+| learned several independent durable facts together | \`longterm_remember_many\` |
 | a stored fact CHANGED | \`longterm_revise\` + \`scope\` |
 | a stored fact was WRONG or expired | \`longterm_forget\` + \`scope\` |
 | SEVERAL stored facts must go at once | \`longterm_forget_many\` + \`scope\` |
@@ -282,10 +285,13 @@ Durable, and not derivable from the repository.
 The test: **would this still be worth knowing in three months, and would a
 sensible person be unable to work it out from the repository?**
 
-## One call, one fact
+## One fact, one statement
 
-\`longterm_remember\` stores one statement. Three things learned means three
-calls with three DIFFERENT texts.
+\`longterm_remember\` stores one statement. \`longterm_remember_many\` stores a
+list of statements in one tool call. Three things learned means three DIFFERENT
+items, never one compound text. Each item is processed independently, so the
+result names \`stored\`, \`blocked\` and its reason, or \`error\`. The batch is not
+all-or-nothing: facts stored before a later error remain stored.
 
 Not: "the project uses Rust, tests run with cargo test, and CI is on GitHub
 Actions". That is three facts in one, and none of them can be revised or

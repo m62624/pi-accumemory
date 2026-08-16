@@ -23,6 +23,7 @@ export interface Directive {
 /** Tool names that change the memory, as opposed to inspecting it. */
 const WRITE_TOOLS = new Set([
 	"longterm_remember",
+	"longterm_remember_many",
 	"longterm_revise",
 	"longterm_forget",
 	"longterm_forget_many",

@@ -291,6 +291,7 @@ export class ConsolidationRunner {
 function isWrite(name: string): boolean {
 	return (
 		name === "longterm_remember" ||
+		name === "longterm_remember_many" ||
 		name === "longterm_revise" ||
 		name === "longterm_forget" ||
 		name === "longterm_forget_many"

@@ -40,6 +40,7 @@ export const LONGTERM_TOOL_NAMES = [
 	"longterm_ask_project",
 	"longterm_projects",
 	"longterm_remember",
+	"longterm_remember_many",
 	"longterm_revise",
 	"longterm_forget",
 	"longterm_forget_many",
@@ -124,6 +125,7 @@ export type ToolController = Pick<
 	| "askProject"
 	| "projects"
 	| "remember"
+	| "rememberMany"
 	| "revise"
 	| "forget"
 	| "listTags"
@@ -263,6 +265,57 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 						entity: optStr(args.entity),
 					}),
 				}),
+		},
+		{
+			name: "longterm_remember_many",
+			label: "Long-term memory: remember several",
+			description:
+				`${WHOSE} Store several independent durable facts in one tool call. ` +
+				"Each item in `facts` MUST be one atomic statement: split compound meaning " +
+				"inside the list too. Use this when several facts were learned together; use " +
+				"longterm_remember for one fact. Every item reports `stored`, `blocked` with " +
+				"its reason, or `error`. This is not all-or-nothing: earlier stored items " +
+				"remain if a later item fails. Never put several facts into one item's text. " +
+				"The same secret, scope, tag, entity, and duplicate rules apply as for " +
+				"longterm_remember.",
+			parameters: {
+				type: "object",
+				properties: {
+					facts: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: {
+								text: { type: "string", description: "One durable statement." },
+								scope: SCOPE_PARAM,
+								tags: { type: "array", items: { type: "string" } },
+								entity: { type: "string" },
+							},
+							required: ["text"],
+						},
+						description: "Several objects, but one atomic fact per object.",
+					},
+				},
+				required: ["facts"],
+			},
+			run: async (args) =>
+				controller.rememberMany(
+					Array.isArray(args.facts)
+						? args.facts.map((item) => {
+								const fact =
+									item !== null && typeof item === "object" ? item : {};
+								const record = fact as Record<string, unknown>;
+								return {
+									text: str(record.text),
+									...defined({
+										scope: optScope(record.scope),
+										tags: strArray(record.tags),
+										entity: optStr(record.entity),
+									}),
+								};
+							})
+						: [],
+				),
 		},
 		{
 			name: "longterm_revise",

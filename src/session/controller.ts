@@ -140,6 +140,14 @@ export interface RememberInputForModel {
 	entity?: string;
 }
 
+export type RememberAttemptStatus = "stored" | "blocked" | "error";
+
+export interface RememberAttempt {
+	status: RememberAttemptStatus;
+	response: string;
+	id?: number;
+}
+
 export class MemoryController {
 	private readonly refresh: RefreshPolicy;
 	private readonly nudge: WriteNudge;
@@ -581,17 +589,69 @@ export class MemoryController {
 	}
 
 	async remember(input: RememberInputForModel): Promise<string> {
+		return (await this.rememberOne(input)).response;
+	}
+
+	/**
+	 * Processes several independent facts in one model tool call.
+	 *
+	 * This intentionally uses the guarded single-fact path: it owns the secret
+	 * guard, duplicate detector, standing-rule limits and refusal text. Each item
+	 * remains atomic as a statement, while the batch can partially succeed and
+	 * never rolls back earlier items.
+	 */
+	async rememberMany(
+		inputs: readonly RememberInputForModel[],
+	): Promise<string> {
+		if (inputs.length === 0)
+			return "No facts given: pass a non-empty facts list.";
+		const attempts: RememberAttempt[] = [];
+		for (const input of inputs) {
+			try {
+				attempts.push(await this.rememberOne(input));
+			} catch (error) {
+				attempts.push({
+					status: "error",
+					response: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+
+		const stored = attempts.filter(
+			(attempt) => attempt.status === "stored",
+		).length;
+		const blocked = attempts.filter(
+			(attempt) => attempt.status === "blocked",
+		).length;
+		const errors = attempts.filter(
+			(attempt) => attempt.status === "error",
+		).length;
+		return [
+			`Processed ${attempts.length} atomic facts: ${stored} stored, ${blocked} blocked, ${errors} error${errors === 1 ? "" : "s"}.`,
+			"This batch is not all-or-nothing; earlier stored facts remain stored if a later item errors.",
+			...attempts.map(
+				(attempt, index) =>
+					`[${index}] ${attempt.status}: ${attempt.response.replace(/\n/gu, "\n    ")}`,
+			),
+		].join("\n");
+	}
+
+	private async rememberOne(
+		input: RememberInputForModel,
+	): Promise<RememberAttempt> {
 		const scope = input.scope ?? "project";
 		if (scope === "both") {
 			await this.stumbled("wrote_to_a_reading_scope");
-			return BOTH_IS_A_READING_SCOPE;
+			return { status: "error", response: BOTH_IS_A_READING_SCOPE };
 		}
 		const memory = this.writableScope(scope);
-		if (memory === undefined) return this.noProjectMessage();
+		if (memory === undefined)
+			return { status: "error", response: this.noProjectMessage() };
 
 		if (isStandingRule(input.tags)) {
 			const overflow = await this.wouldOverflowAlways(input.text);
-			if (overflow !== undefined) return overflow;
+			if (overflow !== undefined)
+				return { status: "blocked", response: overflow };
 		}
 
 		const suggestions = await this.tagSuggestions(memory, input.tags ?? []);
@@ -601,7 +661,8 @@ export class MemoryController {
 			{ label: "entity", text: entity },
 			{ label: "tags", text: (input.tags ?? []).join(" ") },
 		]);
-		if (secretRefusal !== undefined) return secretRefusal;
+		if (secretRefusal !== undefined)
+			return { status: "blocked", response: secretRefusal };
 		let stored: Awaited<ReturnType<typeof memory.rememberGuarded>>;
 		try {
 			stored = await memory.rememberGuarded({
@@ -613,7 +674,10 @@ export class MemoryController {
 			// Nothing was stored. Saying which is the whole point: a model told
 			// only "error" either drops the fact or writes it again five times.
 			if (!isEmbedderFailure(error)) throw error;
-			return `Not stored. ${EMBEDDER_UNREACHABLE}`;
+			return {
+				status: "error",
+				response: `Not stored. ${EMBEDDER_UNREACHABLE}`,
+			};
 		}
 		this.noteWrote();
 
@@ -628,7 +692,7 @@ export class MemoryController {
 				(hit) =>
 					`  [f${hit.id}] ${hit.text}${hit.tags.length === 0 ? "" : ` #${hit.tags.join(" #")}`}`,
 			);
-			return [
+			const response = [
 				`Not stored: ${this.label(scope)} already holds this, in these words:`,
 				...lines,
 				`If yours REPLACES one of them, call longterm_revise with its id and scope: "${scope}". ` +
@@ -636,6 +700,7 @@ export class MemoryController {
 					"adds nothing, it is already remembered - move on. Do not send this call " +
 					"again unchanged.",
 			].join("\n");
+			return { status: "blocked", response };
 		}
 		// The model gets the whole account; what the terminal prints is decided
 		// in `index.ts` from `memory.output`. See `memory/write-report.ts`.
@@ -663,7 +728,7 @@ export class MemoryController {
 					],
 		};
 		this.record({ kind: "write", write });
-		return modelReport(write);
+		return { status: "stored", response: modelReport(write), id: stored.id };
 	}
 
 	/**

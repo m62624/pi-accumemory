@@ -10,7 +10,7 @@
  *
  * Every other test built its tools on a real controller, which is exactly the
  * path the extension never takes. So the test that matters is the boring one
- * below: call all fourteen tools through the façade and require that each of
+ * below: call all fifteen tools through the façade and require that each of
  * them answers. It is written against `LONGTERM_TOOL_NAMES` rather than a list
  * of its own, so a fifteenth tool cannot be added without either wiring it up
  * or failing here.
@@ -37,6 +37,9 @@ const ARGS: Record<LongtermToolName, Record<string, unknown>> = {
 	longterm_ask_project: { project: "other", question: "how was auth done" },
 	longterm_projects: {},
 	longterm_remember: { text: "the formatter is biome" },
+	longterm_remember_many: {
+		facts: [{ text: "the formatter is biome" }, { text: "tests use vitest" }],
+	},
 	longterm_revise: {
 		id: 0,
 		text: "the formatter is prettier",

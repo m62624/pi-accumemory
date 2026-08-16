@@ -93,6 +93,41 @@ describe("tool arguments", () => {
 		expect(project.live()[1]?.entity).toBe("project");
 	});
 
+	it("stores atomic facts in one call and reports blocked items", async () => {
+		const { call, project } = build();
+		const answer = await call("longterm_remember_many", {
+			facts: [
+				{ text: "the cache is disabled", entity: "cache" },
+				{ text: "the cache is disabled", entity: "cache" },
+				{ text: "tests use vitest", entity: "tests" },
+			],
+		});
+		expect(answer).toContain("3 atomic facts: 2 stored, 1 blocked, 0 errors");
+		expect(answer).toContain("[1] blocked:");
+		expect(answer).toContain("already holds this");
+		expect(project.live().map((fact) => fact.text)).toEqual([
+			"the cache is disabled",
+			"tests use vitest",
+		]);
+	});
+
+	it("reports an item error without rolling back earlier items", async () => {
+		const { call, project } = build();
+		const answer = await call("longterm_remember_many", {
+			facts: [
+				{ text: "first independent fact" },
+				{ text: "invalid reading scope", scope: "both" },
+				{ text: "third independent fact" },
+			],
+		});
+		expect(answer).toContain("3 atomic facts: 2 stored, 0 blocked, 1 error");
+		expect(answer).toContain("[1] error:");
+		expect(project.live().map((fact) => fact.text)).toEqual([
+			"first independent fact",
+			"third independent fact",
+		]);
+	});
+
 	it("ignores a prefix or cursor that is not a string", async () => {
 		const { call } = build();
 		await call("longterm_remember", { text: "a fact", tags: ["decision"] });
