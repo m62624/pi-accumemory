@@ -1,5 +1,10 @@
 # pi-accumemory
 
+> ⚠️ **Experimental.** pi-accumemory is mostly an AI-built experiment, written
+> with the help of a small local model (Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf) and a
+> cloud model, in roughly equal measure. Expect non-professional design
+> choices, rough edges, broken behavior, or mistakes. Use it at your own risk.
+
 Long-term memory for [pi](https://github.com/earendil-works/pi-coding-agent).
 
 ## What problem this solves
@@ -15,11 +20,10 @@ facts that match the next request. The model decides what is worth saving. The
 extension decides where it goes, prevents credentials from entering permanent
 memory, and keeps the old version when a fact changes.
 
-This is useful for one person or one local agent working across Pi sessions. It
-is not a transcript archive, a document store, a cloud knowledge base, or a
-multi-user service.
+It suits a single user or local agent working across Pi sessions. It is not a
+transcript archive, document store, cloud knowledge base, or multi-user service.
 
-## How the pieces fit
+## How it works
 
 The storage engine is [plugmem](https://github.com/m62624/plugmem), an
 embedded, file-backed database. There is no server or separate memory service.
@@ -37,10 +41,9 @@ memory controller
 two local plugmem databases
 ```
 
-The controller receives a Pi request, asks the appropriate database for a
-small ranked context block, and adds that block to the next model prompt. When
-the model calls a memory tool, the controller checks the write and passes it to
-plugmem. Background consolidation uses the same write path.
+For each Pi request, the controller asks the selected database for a ranked
+context block and adds it to the next model prompt. Memory tools use the same
+controller path, including background consolidation.
 
 ## Why there are two databases
 
@@ -149,8 +152,8 @@ benchmarks, see the [plugmem README](https://github.com/m62624/plugmem#what-reca
 
 ## Who should use it
 
-It is useful when the same Pi installation serves several sessions and the
-model repeatedly needs the same small set of facts:
+It fits a Pi installation that serves several sessions and needs the same small
+set of facts:
 
 - preferences that apply across repositories;
 - project decisions and local conventions;
@@ -210,7 +213,7 @@ session.
 For the person at the terminal, the commands are `/longterm-status`,
 `/longterm-inspect`, `/longterm-consolidate`, `/longterm-new`,
 `/longterm-rebind`, and `/longterm-reembed`. `/longterm-inspect` opens a
-responsive Pi TUI desk: search by meaning, filter by tags, expand a full fact
+Pi TUI inspector: search by meaning, filter by tags, expand a full fact
 with metadata and graph links, then select several facts with checkboxes and
 forget them in one confirmed batch. It waits until background consolidation or
 review has finished, so the list does not change underneath the inspector. Its
@@ -314,8 +317,9 @@ The full settings reference, including how to change these values, is in
 ## What the person sees
 
 Background jobs show a start notification, one animated status line, and a
-finish or interruption notification. The agent conversation remains private and
-ephemeral. Memory writes go to the normal database immediately.
+finish or interruption notification. Their temporary conversation is not
+written to Pi's JSONL history or shown in `/resume`. Memory writes go to the
+normal database immediately.
 
 ## Where files live
 
