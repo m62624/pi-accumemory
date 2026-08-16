@@ -40,7 +40,9 @@ import {
 import type { Settings } from "../settings/defaults.ts";
 import { isEmbedderFailure, isVectorSpaceMismatch } from "../storage/errors.ts";
 import {
+	type EdgeRef,
 	type EmbedderState,
+	type FactCard,
 	liveFacts,
 	type ReadableMemory,
 	type WritableMemory,
@@ -116,6 +118,19 @@ export interface AskInput {
 	tags?: string[];
 	k?: number;
 	graphDepth?: number;
+}
+
+/** A fact row for the human inspection desk, with its database identity kept. */
+export interface InspectFact {
+	scope: Exclude<Scope, "both">;
+	label: string;
+	card: FactCard;
+}
+
+/** A graph edge labelled with the memory it belongs to. */
+export interface InspectEdge extends EdgeRef {
+	scope: Exclude<Scope, "both">;
+	label: string;
 }
 
 export interface RememberInputForModel {
@@ -1052,6 +1067,51 @@ export class MemoryController {
 			text: fact.text,
 			tags: fact.tags,
 		}));
+	}
+
+	/**
+	 * Facts for the terminal inspector.
+	 *
+	 * Empty search is deliberately an enumeration. A non-empty search uses the
+	 * same hybrid recall as the agent, while tags remain a filter over that
+	 * source. The UI asks for a small page, so typing never walks the database.
+	 */
+	async inspectFacts(
+		query: string,
+		tags: readonly string[],
+		scope: Scope = "both",
+		limit = 40,
+	): Promise<InspectFact[]> {
+		const wanted = [...tags].filter((tag) => tag !== "");
+		const rows: InspectFact[] = [];
+		for (const [factScope, label, memory] of this.readableScopes(scope)) {
+			const ids =
+				query.trim() === ""
+					? (await memory.scan({ tags: wanted, limit })).map((fact) => fact.id)
+					: (
+							await memory.recall({
+								query,
+								tags: wanted,
+								k: limit,
+								tokenBudget: this.deps.settings.memory.recallTokenBudget,
+							})
+						).facts.map((fact) => fact.id);
+			for (const id of ids) {
+				const card = await memory.get(id);
+				if (card !== null) rows.push({ scope: factScope, label, card });
+			}
+		}
+		return rows;
+	}
+
+	/** Load the current graph once when the inspector opens, not on every keystroke. */
+	async inspectEdges(scope: Scope = "both"): Promise<InspectEdge[]> {
+		const edges: InspectEdge[] = [];
+		for (const [factScope, label, memory] of this.readableScopes(scope)) {
+			for (const edge of (await memory.listEdges?.()) ?? [])
+				edges.push({ ...edge, scope: factScope, label });
+		}
+		return edges;
 	}
 
 	/** The memories a review can walk, project first. */

@@ -71,6 +71,10 @@ const SCHEMA: Record<string, FieldSpec> = {
 					cooldownTurns: COUNT,
 				},
 			},
+			inspect: {
+				kind: "section",
+				fields: { pageSize: COUNT },
+			},
 			consolidation: {
 				kind: "section",
 				fields: {

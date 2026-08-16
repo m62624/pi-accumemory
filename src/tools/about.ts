@@ -128,7 +128,7 @@ export class AboutDesk {
 	 */
 	private currentSettings(): string {
 		const { memory, timezone } = this.deps.settings;
-		const { consolidation, refresh, nudge } = memory;
+		const { consolidation, refresh, nudge, inspect } = memory;
 		const { paths } = this.deps;
 		const lines = [
 			"# What this session is running with",
@@ -157,6 +157,7 @@ export class AboutDesk {
 			`- instructions.alwaysMax: ${memory.instructions.alwaysMax}`,
 			`- instructions.alwaysMaxChars: ${memory.instructions.alwaysMaxChars}`,
 			`- notes.overviewMaxChars: ${memory.notes.overviewMaxChars}`,
+			`- inspect.pageSize: ${inspect.pageSize}`,
 			`- timezone: ${timezone ?? "the machine's own"}`,
 			"",
 			"## Which folder gets its own memory",

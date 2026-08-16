@@ -193,8 +193,12 @@ pages for topics such as `system`, `scopes`, `recall`, `consolidation`, and
 session.
 
 For the person at the terminal, the commands are `/longterm-status`,
-`/longterm-new`, `/longterm-rebind`, `/longterm-consolidate`, and
-`/longterm-reembed`.
+`/longterm-inspect`, `/longterm-new`, `/longterm-rebind`,
+`/longterm-consolidate`, and `/longterm-reembed`. `/longterm-inspect` opens a
+responsive Pi TUI desk: search by meaning, filter by tags, expand a full fact
+with metadata and graph links, then select several facts with checkboxes and
+forget them in one confirmed batch. Its result page size is controlled by
+`memory.inspect.pageSize` in `settings.json`.
 
 ## What happens when the model writes
 

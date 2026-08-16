@@ -52,6 +52,9 @@ day it does not.
 			"afterToolCalls": 30,
 			"cooldownTurns": 15
 		},
+		"inspect": {
+			"pageSize": 40
+		},
 		"consolidation": {
 			"enabled": true,
 			"quietMs": 420000,
@@ -109,6 +112,7 @@ definition of a topic change.
 | `memory.recallTokenBudget` | `512` | how much of the context window one recall may spend |
 | `memory.recallK` | `0` | maximum facts per recall; `0` leaves the engine's own default |
 | `memory.graphDepth` | `null` | hops to follow along entity links; `null` uses the engine's own default, which is 2. Not a maximum: the walk is bounded by its entity and edge budgets, so a larger number costs more work rather than reaching further than allowed |
+| `memory.inspect.pageSize` | `40` | maximum number of matching facts loaded for one inspector search; the terminal height may show fewer rows |
 | `memory.manifest` | `true` | the one-line inventory shown once at session start, so the model knows there is something to ask about |
 | `memory.queryMaxChars` | `600` | ceiling on the recall query. Lexical retrieval degrades as terms pile up, and a pasted wall of text drowns the words that identify the question |
 | `memory.output` | `"short"` | how much of what a memory tool did is printed **in your terminal**. See below |
@@ -549,6 +553,7 @@ client names) but never weaker.
 | command | what it does |
 |---|---|
 | `/longterm-status` | which project this is, where the memory lives, what projects are registered |
+| `/longterm-inspect` | search, inspect, tag-filter, and batch-delete stored facts in a responsive terminal window |
 | `/longterm-new` | give this folder a memory of its own — see above |
 | `/longterm-rebind` | give this folder a memory that already exists — see below |
 | `/longterm-consolidate` | run the background pass now instead of waiting for a quiet period |

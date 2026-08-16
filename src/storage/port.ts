@@ -225,6 +225,8 @@ export interface ReadableMemory {
 	scan(filter?: ScanFilter): Promise<ScannedFact[]>;
 	get(id: number): Promise<FactCard | null>;
 	tagsOf(id: number): Promise<string[]>;
+	/** Current typed graph edges, streamed from the engine into a bounded UI view. */
+	listEdges?(): Promise<EdgeRef[]>;
 	listTags(query?: TagQuery): Promise<TagPage>;
 	stats(): Promise<MemoryStats>;
 }

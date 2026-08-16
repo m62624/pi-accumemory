@@ -71,6 +71,11 @@ export interface ReviewSettings {
 	sampleSize: number;
 }
 
+export interface InspectSettings {
+	/** Facts shown in one inspector result page before terminal-height clipping. */
+	pageSize: number;
+}
+
 /**
  * The habit phase: a mistake the model has repeated across sessions.
  *
@@ -171,6 +176,7 @@ export interface Settings {
 		instructions: { alwaysMax: number; alwaysMaxChars: number };
 		notes: { overviewMaxChars: number };
 		nudge: NudgeSettings;
+		inspect: InspectSettings;
 		consolidation: ConsolidationSettings;
 		crossProject: { enabled: boolean };
 	};
@@ -223,6 +229,9 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 			afterMessages: 20,
 			afterToolCalls: 30,
 			cooldownTurns: 15,
+		},
+		inspect: {
+			pageSize: 40,
 		},
 		consolidation: {
 			enabled: true,

@@ -113,6 +113,23 @@ export class PlugmemStore implements WritableMemory {
 		return this.db.tagsOf(id);
 	}
 
+	async listEdges(): Promise<EdgeRef[]> {
+		const edges: EdgeRef[] = [];
+		await this.db.exportEdges((batch) => {
+			for (const edge of batch) {
+				edges.push({
+					src: edge.src,
+					rel: edge.rel,
+					dst: edge.dst,
+					...(edge.provenance === undefined
+						? {}
+						: { provenance: edge.provenance }),
+				});
+			}
+		});
+		return edges;
+	}
+
 	async listTags(query: TagQuery = {}): Promise<TagPage> {
 		return this.db.listTags(query);
 	}
@@ -208,6 +225,23 @@ export class PlugmemReader implements ReadableMemory {
 
 	async tagsOf(id: number): Promise<string[]> {
 		return this.db.tagsOf(id);
+	}
+
+	async listEdges(): Promise<EdgeRef[]> {
+		const edges: EdgeRef[] = [];
+		await this.db.exportEdges((batch) => {
+			for (const edge of batch) {
+				edges.push({
+					src: edge.src,
+					rel: edge.rel,
+					dst: edge.dst,
+					...(edge.provenance === undefined
+						? {}
+						: { provenance: edge.provenance }),
+				});
+			}
+		});
+		return edges;
 	}
 
 	async listTags(query: TagQuery = {}): Promise<TagPage> {

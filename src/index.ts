@@ -41,6 +41,11 @@ import { lazyController, MEMORY_UNAVAILABLE } from "./tools/lazy.ts";
 import { createBackgroundProgress } from "./ui/background-progress.ts";
 import { terminalWidth } from "./ui/fit.ts";
 import {
+	type InspectKey,
+	type InspectSnapshot,
+	openMemoryInspector,
+} from "./ui/memory-inspect.ts";
+import {
 	buildRebindOptions,
 	type RebindCandidate,
 	resolveRebindPick,
@@ -346,6 +351,72 @@ export default function accumemory(pi: ExtensionAPI): void {
 			);
 			if (stuck !== "") lines.push("", stuck);
 			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("longterm-inspect", {
+		description: "Search, inspect, tag-filter, and delete stored memory facts",
+		handler: async (_args, ctx) => {
+			await ready;
+			if (session === undefined) {
+				ctx.ui.notify(startupError ?? "Long-term memory is off.", "warning");
+				return;
+			}
+			if (ctx.mode !== "tui" || !ctx.hasUI) {
+				ctx.ui.notify(
+					"/longterm-inspect needs Pi's interactive terminal UI.",
+					"warning",
+				);
+				return;
+			}
+
+			const pageSize = session.settings.memory.inspect.pageSize;
+			const snapshot: InspectSnapshot = {
+				facts: await session.controller.inspectFacts("", [], "both", pageSize),
+				edges: await session.controller.inspectEdges("both"),
+			};
+			await openMemoryInspector(
+				ctx.ui,
+				snapshot,
+				{
+					search: async (query, tags) =>
+						session?.controller.inspectFacts(query, tags, "both", pageSize) ??
+						[],
+					delete: async (keys) => {
+						const confirmed = await ctx.ui.confirm(
+							"Delete selected memory facts?",
+							`${keys.length} fact${keys.length === 1 ? "" : "s"} will be forgotten. ` +
+								"This removes them from recall; their old bytes are reclaimed by maintain.",
+						);
+						if (!confirmed || session === undefined) return [];
+
+						const grouped = new Map<"project" | "user", number[]>();
+						for (const key of keys) {
+							const separator = key.indexOf(":");
+							const scope = key.slice(0, separator) as "project" | "user";
+							const id = Number(key.slice(separator + 1));
+							if (
+								(scope === "project" || scope === "user") &&
+								Number.isInteger(id)
+							) {
+								const ids = grouped.get(scope) ?? [];
+								ids.push(id);
+								grouped.set(scope, ids);
+							}
+						}
+
+						const deleted: InspectKey[] = [];
+						for (const [scope, ids] of grouped) {
+							await session.controller.forget(ids, scope);
+							deleted.push(...ids.map((id) => `${scope}:${id}` as InspectKey));
+						}
+						// One maintenance pass for the whole user action, never one per row.
+						await session.controller.maintain();
+						return deleted;
+					},
+				},
+				pageSize,
+			);
 		},
 	});
 

@@ -45,6 +45,7 @@ export interface Reader {
 	scan(filter?: ScanFilter): Promise<ScannedFact[]>;
 	get(id: number): Promise<FactCard | null>;
 	tagsOf(id: number): Promise<string[]>;
+	listEdges?(): Promise<EdgeRef[]>;
 	listTags(query?: TagQuery): Promise<TagPage>;
 	stats(): Promise<MemoryStats>;
 	refresh(): boolean;
@@ -102,6 +103,10 @@ export class CommonStore implements WritableMemory {
 
 	async tagsOf(id: number): Promise<string[]> {
 		return this.reader.tagsOf(id);
+	}
+
+	async listEdges(): Promise<EdgeRef[]> {
+		return (await this.reader.listEdges?.()) ?? [];
 	}
 
 	async listTags(query: TagQuery = {}): Promise<TagPage> {

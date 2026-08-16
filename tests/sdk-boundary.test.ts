@@ -18,7 +18,11 @@ import { describe, expect, it } from "vitest";
 const SRC = new URL("../src/", import.meta.url).pathname;
 
 /** The only files permitted to import `@earendil-works/*`. */
-const BOUNDARY = ["index.ts", "consolidation/pi-agent.ts"];
+const BOUNDARY = [
+	"index.ts",
+	"consolidation/pi-agent.ts",
+	"ui/memory-inspect.ts",
+];
 
 async function sourceFiles(dir: string, prefix = ""): Promise<string[]> {
 	const entries = await readdir(dir, { withFileTypes: true });

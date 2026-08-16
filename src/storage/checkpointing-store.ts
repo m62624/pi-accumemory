@@ -79,6 +79,10 @@ export class CheckpointingStore implements WritableMemory {
 		return this.inner.tagsOf(id);
 	}
 
+	async listEdges(): Promise<EdgeRef[]> {
+		return (await this.inner.listEdges?.()) ?? [];
+	}
+
 	async listTags(query?: TagQuery): Promise<TagPage> {
 		return this.inner.listTags(query);
 	}

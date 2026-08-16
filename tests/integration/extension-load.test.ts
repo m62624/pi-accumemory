@@ -77,6 +77,7 @@ describe("the extension entry point", () => {
 		expect(tools.map((tool) => tool.name)).toEqual([...LONGTERM_TOOL_NAMES]);
 		expect(commands).toEqual([
 			"longterm-status",
+			"longterm-inspect",
 			"longterm-new",
 			"longterm-rebind",
 			"longterm-consolidate",

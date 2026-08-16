@@ -52,6 +52,45 @@ function build(options: { withProject?: boolean; settings?: Settings } = {}) {
 
 const userTurn = (text: string): Turn => ({ role: "user", text });
 
+describe("MemoryController.inspectFacts", () => {
+	it("enumerates tag-filtered facts and uses semantic recall for a query", async () => {
+		const { controller, project, common } = build();
+		await project?.remember({
+			text: "synthetic cache policy",
+			entity: "service",
+			tags: ["decision"],
+			links: [{ rel: "uses", entity: "cache" }],
+		});
+		await common.remember({
+			text: "synthetic shared convention",
+			tags: ["policy"],
+		});
+
+		const tagged = await controller.inspectFacts("", ["decision"], "both", 4);
+		expect(tagged.map((row) => `${row.scope}:${row.card.text}`)).toEqual([
+			"project:synthetic cache policy",
+		]);
+
+		const recalled = await controller.inspectFacts(
+			"cache policy",
+			[],
+			"project",
+			4,
+		);
+		expect(recalled).toHaveLength(1);
+		expect(recalled[0]?.card.tags).toEqual(["decision"]);
+		expect(await controller.inspectEdges("both")).toMatchObject([
+			{ scope: "project", src: "service", rel: "uses", dst: "cache" },
+		]);
+	});
+
+	it("returns no rows when the project memory is absent", async () => {
+		const { controller } = build({ withProject: false });
+		expect(await controller.inspectFacts("", [], "project", 4)).toEqual([]);
+		expect(await controller.inspectEdges("project")).toEqual([]);
+	});
+});
+
 describe("MemoryController.tail", () => {
 	it("adds nothing when memory is switched off", async () => {
 		const { controller } = build({

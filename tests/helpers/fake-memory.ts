@@ -274,6 +274,10 @@ export class FakeMemory implements WritableMemory {
 		return (await this.get(id))?.tags ?? [];
 	}
 
+	async listEdges(): Promise<EdgeRef[]> {
+		return this.edges.map((edge) => ({ ...edge }));
+	}
+
 	async listTags(query: TagQuery = {}): Promise<TagPage> {
 		const counts = new Map<string, number>();
 		for (const fact of this.live()) {
