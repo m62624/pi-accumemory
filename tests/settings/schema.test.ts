@@ -80,14 +80,11 @@ describe("parseSettings", () => {
 		expect(() => parseSettings("nope")).toThrow(/object/i);
 	});
 
-	it("reports the retired embedder section as an unknown key", () => {
-		// It configured the embedder before plugmem's own config.toml did. There
-		// was never a release with it, so there is nothing to migrate - but a
-		// key nothing claims is still worth naming rather than swallowing.
+	it("does not accept an unregistered setting alias", () => {
 		const { warnings } = parseSettings({
-			memory: { embedder: { enabled: true } },
+			memory: { writeOutput: "full" },
 		});
-		expect(warnings.join(" ")).toContain("memory.embedder");
+		expect(warnings.join(" ")).toContain("memory.writeOutput");
 	});
 
 	it("takes a marker list and a walk limit for project detection", () => {

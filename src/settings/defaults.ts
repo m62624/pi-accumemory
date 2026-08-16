@@ -149,9 +149,8 @@ export interface Settings {
 		/**
 		 * What the TERMINAL shows for a memory call; the model always sees all.
 		 *
-		 * Named `output` rather than `writeOutput` since it stopped being about
-		 * writes: every tool now reports what it did, and every one of them has
-		 * a one-line form for the person watching.
+		 * Every tool reports what it did, and every one of them has a one-line
+		 * form for the person watching.
 		 */
 		output: WriteOutput;
 		recallTokenBudget: number;

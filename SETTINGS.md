@@ -154,10 +154,6 @@ there would be a guess.
 | `"full"` | everything the model was told. Useful while you are tuning tags or watching what lands where |
 | `"hidden"` | nothing at all |
 
-The old name `memory.writeOutput` still works and is read as `memory.output`,
-with a warning at startup.
-
-
 ## Writing: `memory.nudge.*`
 
 There is **no** automatic "save a summary of every turn". The model stores what

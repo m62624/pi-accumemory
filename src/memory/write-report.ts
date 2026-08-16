@@ -16,7 +16,7 @@
  * Trimming any of it to tidy the terminal would be buying a quiet screen with a
  * worse memory.
  *
- * **The person gets what they asked for** - `memory.writeOutput`, one line by
+ * **The person gets what they asked for** - `memory.output`, one line by
  * default.
  */
 

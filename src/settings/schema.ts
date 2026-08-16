@@ -136,40 +136,8 @@ export function parseSettings(raw: unknown): ParsedSettings {
 		string,
 		unknown
 	>;
-	overlay(settings, raw, SCHEMA, "", warnings, settings);
+	overlay(settings, raw, SCHEMA, "", warnings);
 	return { settings: settings as unknown as Settings, warnings };
-}
-
-/**
- * Old dotted names, and what they are called now.
- *
- * The new name is a full path rather than a sibling key, so a setting can move
- * between sections and still be honoured.
- */
-const RENAMED: Record<string, string> = {
-	"memory.writeOutput": "memory.output",
-};
-
-/** The spec a dotted path names, or `undefined` when nothing does. */
-function specAt(dotted: string): FieldSpec | undefined {
-	let fields: Record<string, FieldSpec> = SCHEMA;
-	let spec: FieldSpec | undefined;
-	for (const part of dotted.split(".")) {
-		spec = fields[part];
-		if (spec === undefined) return undefined;
-		if (spec.kind === "section") fields = spec.fields;
-	}
-	return spec;
-}
-
-/** Writes a value at a dotted path that the schema has already vouched for. */
-function setAt(root: Record<string, unknown>, dotted: string, value: unknown) {
-	const parts = dotted.split(".");
-	const last = parts.pop();
-	if (last === undefined) return;
-	let target = root;
-	for (const part of parts) target = target[part] as Record<string, unknown>;
-	target[last] = value;
 }
 
 function overlay(
@@ -178,25 +146,9 @@ function overlay(
 	schema: Record<string, FieldSpec>,
 	prefix: string,
 	warnings: string[],
-	/** The whole document, so a rename can land in another section. */
-	root: Record<string, unknown>,
 ): void {
 	for (const [key, value] of Object.entries(source)) {
 		const dotted = prefix === "" ? key : `${prefix}.${key}`;
-		const renamed = RENAMED[dotted];
-		if (renamed !== undefined) {
-			// Honoured rather than ignored. A rename that silently drops the
-			// value returns the setting to its default without saying so, and
-			// the person finds out by noticing their terminal looks wrong.
-			warnings.push(
-				`settings: "${dotted}" is now "${renamed}"; the old name still works`,
-			);
-			const spec = specAt(renamed);
-			if (spec !== undefined) {
-				setAt(root, renamed, checkScalar(dotted, value, spec, warnings));
-			}
-			continue;
-		}
 		const spec = schema[key];
 		if (spec === undefined) {
 			warnings.push(`settings: unknown key "${dotted}" was ignored`);
@@ -212,7 +164,6 @@ function overlay(
 				spec.fields,
 				dotted,
 				warnings,
-				root,
 			);
 			continue;
 		}

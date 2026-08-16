@@ -187,6 +187,8 @@ export interface StartedSession {
 	deleteMemory(projectId: string): Promise<DeleteOutcome>;
 	/** Everything worth telling the user once, in plain sentences. */
 	notices: string[];
+	/** Settings-schema warnings, shown with warning severity at session start. */
+	warnings: string[];
 	/** plugmem's config file, as it was actually resolved. */
 	configFile: string;
 	/**
@@ -782,6 +784,7 @@ export async function startSession(
 		...(projectId === undefined ? {} : { projectId }),
 		...(projectRoot === undefined ? {} : { projectRoot }),
 		notices,
+		warnings: [],
 		configFile: configFile.path,
 		// Through the writer when this session has one: it is the handle that
 		// embeds what gets stored, so it is the one whose suspension changes

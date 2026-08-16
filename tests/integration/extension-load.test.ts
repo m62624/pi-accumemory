@@ -7,10 +7,11 @@
  * does not take the session down with it.
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { extensionLayout } from "../../src/layout.ts";
 import { LONGTERM_TOOL_NAMES } from "../../src/tools/definitions.ts";
 
 interface RegisteredTool {
@@ -29,6 +30,7 @@ function stubApi() {
 		((event: unknown, ctx: unknown) => unknown)[]
 	>();
 	const notices: string[] = [];
+	const noticeLevels: string[] = [];
 
 	const api = {
 		registerTool: (tool: RegisteredTool) => tools.push(tool),
@@ -39,7 +41,10 @@ function stubApi() {
 	};
 	const ctx = {
 		ui: {
-			notify: (message: string) => notices.push(message),
+			notify: (message: string, level = "info") => {
+				notices.push(message);
+				noticeLevels.push(level);
+			},
 			setStatus: () => {},
 		},
 	};
@@ -50,7 +55,7 @@ function stubApi() {
 		}
 		return results;
 	};
-	return { api, tools, commands, notices, fire };
+	return { api, tools, commands, notices, noticeLevels, fire };
 }
 
 describe("the extension entry point", () => {
@@ -67,6 +72,38 @@ describe("the extension entry point", () => {
 		if (previousHome === undefined) delete process.env.HOME;
 		else process.env.HOME = previousHome;
 		await rm(home, { recursive: true, force: true });
+	});
+
+	it("shows settings warnings with warning severity", async () => {
+		const agentDir = join(home, "agent");
+		const layout = extensionLayout(agentDir, posix);
+		await mkdir(layout.root, { recursive: true });
+		await writeFile(
+			layout.settingsFile,
+			JSON.stringify({ memory: { unknownSetting: true } }),
+		);
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		try {
+			const { api, fire, notices, noticeLevels } = stubApi();
+			const { default: accumemory } = await import("../../src/index.ts");
+			accumemory(api as never);
+			await fire("session_start", { type: "session_start", reason: "startup" });
+
+			const warningIndex = notices.findIndex((notice) =>
+				notice.includes("memory.unknownSetting"),
+			);
+			expect(warningIndex).toBeGreaterThanOrEqual(0);
+			expect(noticeLevels[warningIndex]).toBe("warning");
+			await fire("session_shutdown", {
+				type: "session_shutdown",
+				reason: "quit",
+			});
+		} finally {
+			if (previousAgentDir === undefined)
+				delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		}
 	});
 
 	it("registers every tool and every command", async () => {

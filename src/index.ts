@@ -104,7 +104,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 			cwd: process.cwd(),
 			home: homedir(),
 		});
-		started.notices.unshift(...warnings);
+		started.warnings.push(...warnings);
 		return started;
 	};
 
@@ -213,6 +213,8 @@ export default function accumemory(pi: ExtensionAPI): void {
 		noticesShown = true;
 		const notices =
 			startupError === undefined ? (session?.notices ?? []) : [startupError];
+		for (const warning of session?.warnings ?? [])
+			ctx.ui.notify(`pi-accumemory: ${warning}`, "warning");
 		for (const notice of notices)
 			ctx.ui.notify(`pi-accumemory: ${notice}`, "info");
 	});
@@ -344,6 +346,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 				// this command to find out about.
 				`Embedder: ${embedderLine(session.embedderState())}`,
 				await session.controller.projects(),
+				...session.warnings,
 				...session.notices,
 			];
 			// Only when there is something wrong that the memory could not fix
