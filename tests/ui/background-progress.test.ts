@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createBackgroundProgress } from "../../src/ui/background-progress.ts";
+import {
+	createBackgroundProgress,
+	runInspectorWhenAvailable,
+} from "../../src/ui/background-progress.ts";
 
 function fakeUi() {
 	const events: string[] = [];
@@ -27,6 +30,7 @@ describe("createBackgroundProgress", () => {
 		});
 
 		const run = progress.begin("consolidation");
+		expect(progress.activeJob()).toBe("consolidation");
 		expect(ui.events).toContain("notify:info:Memory consolidation started.");
 		expect(ui.events).toContain(
 			"status:longterm-memory:Memory consolidation ⠋",
@@ -38,6 +42,7 @@ describe("createBackgroundProgress", () => {
 		expect(ui.events.join("\n")).toContain("Memory consolidation ⠙");
 
 		run.end("completed");
+		expect(progress.activeJob()).toBeUndefined();
 		expect(ui.events.at(-1)).toBe("notify:info:Memory consolidation finished.");
 	});
 
@@ -54,6 +59,7 @@ describe("createBackgroundProgress", () => {
 		});
 
 		const run = progress.begin("review");
+		expect(progress.activeJob()).toBe("review");
 		const statusUpdates = () =>
 			ui.events.filter((event) => event.startsWith("status:")).length;
 		const beforeTicks = statusUpdates();
@@ -96,6 +102,28 @@ describe("createBackgroundProgress", () => {
 		expect(ui.events).toContain(
 			"notify:error:Memory consolidation failed. The next run will retry.",
 		);
+	});
+
+	it("blocks the inspector only during consolidation", async () => {
+		const notices: string[] = [];
+		let ran = false;
+		const task = () => {
+			ran = true;
+			return Promise.resolve("opened");
+		};
+		await expect(
+			runInspectorWhenAvailable(
+				"consolidation",
+				(message) => notices.push(message),
+				task,
+			),
+		).resolves.toBeUndefined();
+		expect(ran).toBe(false);
+		expect(notices[0]).toMatch(/consolidation is running/i);
+		await expect(
+			runInspectorWhenAvailable(undefined, () => {}, task),
+		).resolves.toBe("opened");
+		expect(ran).toBe(true);
 	});
 
 	it("ignores an older run after a newer run starts", () => {

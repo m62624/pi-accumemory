@@ -38,7 +38,10 @@ import { type StartedSession, startSession } from "./startup.ts";
 import type { EmbedderState } from "./storage/port.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import { lazyController, MEMORY_UNAVAILABLE } from "./tools/lazy.ts";
-import { createBackgroundProgress } from "./ui/background-progress.ts";
+import {
+	createBackgroundProgress,
+	runInspectorWhenAvailable,
+} from "./ui/background-progress.ts";
 import { terminalWidth } from "./ui/fit.ts";
 import {
 	type InspectKey,
@@ -370,65 +373,83 @@ export default function accumemory(pi: ExtensionAPI): void {
 				);
 				return;
 			}
+			const current = session;
 
-			const pageSize = session.settings.memory.inspect.pageSize;
-			const snapshot: InspectSnapshot = {
-				facts: await session.controller.inspectFacts("", [], "both", pageSize),
-				edges: await session.controller.inspectEdges("both"),
-			};
-			await openMemoryInspector(
-				ctx.ui,
-				snapshot,
-				{
-					search: async (query, tags, scopes) => {
-						if (scopes.length === 0) return [];
-						const scope: "project" | "user" | "both" =
-							scopes.length === 2 ? "both" : (scopes[0] as InspectScope);
-						return (
-							session?.controller.inspectFacts(query, tags, scope, pageSize) ??
-							[]
-						);
-					},
-					delete: async (keys) => {
-						const confirmed = await ctx.ui.confirm(
-							"Delete selected memory facts?",
-							`${keys.length} fact${keys.length === 1 ? "" : "s"} will be forgotten. ` +
-								"This removes them from recall; their old bytes are reclaimed by maintain.",
-						);
-						if (!confirmed || session === undefined)
-							return { deleted: [], message: "Deletion cancelled." };
+			await runInspectorWhenAvailable(
+				backgroundProgress.activeJob(),
+				(message, type) => ctx.ui.notify(message, type),
+				async () => {
+					const pageSize = current.settings.memory.inspect.pageSize;
+					const snapshot: InspectSnapshot = {
+						facts: await current.controller.inspectFacts(
+							"",
+							[],
+							"both",
+							pageSize,
+						),
+						edges: await current.controller.inspectEdges("both"),
+					};
+					await openMemoryInspector(
+						ctx.ui,
+						snapshot,
+						{
+							search: async (query, tags, scopes) => {
+								if (scopes.length === 0) return [];
+								const scope: "project" | "user" | "both" =
+									scopes.length === 2 ? "both" : (scopes[0] as InspectScope);
+								return (
+									current.controller.inspectFacts(
+										query,
+										tags,
+										scope,
+										pageSize,
+									) ?? []
+								);
+							},
+							delete: async (keys) => {
+								const confirmed = await ctx.ui.confirm(
+									"Delete selected memory facts?",
+									`${keys.length} fact${keys.length === 1 ? "" : "s"} will be forgotten. ` +
+										"This removes them from recall; their old bytes are reclaimed by maintain.",
+								);
+								if (!confirmed)
+									return { deleted: [], message: "Deletion cancelled." };
 
-						const grouped = new Map<"project" | "user", number[]>();
-						for (const key of keys) {
-							const separator = key.indexOf(":");
-							const scope = key.slice(0, separator) as "project" | "user";
-							const id = Number(key.slice(separator + 1));
-							if (
-								(scope === "project" || scope === "user") &&
-								Number.isInteger(id)
-							) {
-								const ids = grouped.get(scope) ?? [];
-								ids.push(id);
-								grouped.set(scope, ids);
-							}
-						}
+								const grouped = new Map<"project" | "user", number[]>();
+								for (const key of keys) {
+									const separator = key.indexOf(":");
+									const scope = key.slice(0, separator) as "project" | "user";
+									const id = Number(key.slice(separator + 1));
+									if (
+										(scope === "project" || scope === "user") &&
+										Number.isInteger(id)
+									) {
+										const ids = grouped.get(scope) ?? [];
+										ids.push(id);
+										grouped.set(scope, ids);
+									}
+								}
 
-						const deleted: InspectKey[] = [];
-						for (const [scope, ids] of grouped) {
-							await session.controller.forget(ids, scope);
-							deleted.push(...ids.map((id) => `${scope}:${id}` as InspectKey));
-						}
-						// One maintenance pass for the whole user action, never one per row.
-						await session.controller.maintain();
-						return {
-							deleted,
-							message:
-								`Forgot ${deleted.length} fact${deleted.length === 1 ? "" : "s"}. ` +
-								"They are gone from recall; storage maintenance completed.",
-						};
-					},
+								const deleted: InspectKey[] = [];
+								for (const [scope, ids] of grouped) {
+									await current.controller.forget(ids, scope);
+									deleted.push(
+										...ids.map((id) => `${scope}:${id}` as InspectKey),
+									);
+								}
+								// One maintenance pass for the whole user action, never one per row.
+								await current.controller.maintain();
+								return {
+									deleted,
+									message:
+										`Forgot ${deleted.length} fact${deleted.length === 1 ? "" : "s"}. ` +
+										"They are gone from recall; storage maintenance completed.",
+								};
+							},
+						},
+						pageSize,
+					);
 				},
-				pageSize,
 			);
 		},
 	});

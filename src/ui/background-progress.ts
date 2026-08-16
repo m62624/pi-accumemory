@@ -32,6 +32,21 @@ export interface BackgroundRun {
 	cancel(): void;
 }
 
+export async function runInspectorWhenAvailable<T>(
+	job: BackgroundJob | undefined,
+	notify: (message: string, type?: "info" | "warning" | "error") => void,
+	task: () => Promise<T>,
+): Promise<T | undefined> {
+	if (job === "consolidation") {
+		notify(
+			"Memory consolidation is running. Open the memory inspector after it finishes.",
+			"warning",
+		);
+		return undefined;
+	}
+	return task();
+}
+
 const STATUS_KEY = "longterm-memory";
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -42,6 +57,7 @@ const LABELS: Record<BackgroundJob, string> = {
 
 export function createBackgroundProgress(options: BackgroundProgressOptions): {
 	begin(job: BackgroundJob): BackgroundRun;
+	activeJob(): BackgroundJob | undefined;
 	interrupt(): void;
 	cancel(): void;
 } {
@@ -104,6 +120,10 @@ export function createBackgroundProgress(options: BackgroundProgressOptions): {
 	};
 
 	return {
+		activeJob(): BackgroundJob | undefined {
+			return active?.job;
+		},
+
 		begin(job): BackgroundRun {
 			clearDisplay();
 			const run = { id: ++nextId, job, frame: 0 };
