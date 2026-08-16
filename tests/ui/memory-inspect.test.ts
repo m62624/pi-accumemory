@@ -2,6 +2,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
 	factKey,
+	type InspectDeleteResult,
 	type InspectFactRow,
 	type InspectScope,
 	InspectSelection,
@@ -108,7 +109,7 @@ async function driveInspector(
 		) => Promise<InspectFactRow[]>;
 		delete: (
 			keys: `${"project" | "user"}:${number}`[],
-		) => Promise<`${"project" | "user"}:${number}`[]>;
+		) => Promise<InspectDeleteResult>;
 	},
 	drive: (component: {
 		render(width: number): string[];
@@ -155,7 +156,7 @@ describe("memory inspector TUI", () => {
 				},
 				delete: async (keys) => {
 					deleted.push(keys);
-					return keys;
+					return { deleted: keys };
 				},
 			},
 			async (component) => {
@@ -170,10 +171,9 @@ describe("memory inspector TUI", () => {
 				component.handleInput("\x7f");
 				component.handleInput("\x1b[3~");
 				await new Promise((resolve) => setTimeout(resolve, 140));
-				component.handleInput("\t");
+				component.handleInput("\x1b[B");
 				component.handleInput("d");
 				await new Promise((resolve) => setTimeout(resolve, 140));
-				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\r");
 				expect(component.render(100).join("\n")).toContain(
@@ -189,6 +189,29 @@ describe("memory inspector TUI", () => {
 		expect(deleted).toEqual([["project:1"]]);
 	});
 
+	it("switches from search to the list in one Tab and shows the delete result", async () => {
+		await driveInspector(
+			fakeSnapshot(),
+			{
+				search: async () => snapshotFacts(),
+				delete: async (keys) => ({
+					deleted: keys,
+					message: "Forgot 1 fact. They are gone from recall.",
+				}),
+			},
+			async (component) => {
+				component.handleInput("\t");
+				component.handleInput(" ");
+				expect(component.render(80).join("\n")).toContain("1 selected");
+				component.handleInput("\x1b[3~");
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				expect(component.render(80).join("\n")).toContain(
+					"They are gone from recall",
+				);
+			},
+		);
+	});
+
 	it("filters by scope and wraps long facts inside a closed frame", async () => {
 		const scopes: InspectScope[][] = [];
 		const long = fact(8, "project");
@@ -201,28 +224,31 @@ describe("memory inspector TUI", () => {
 					scopes.push([...selected]);
 					return [long];
 				},
-				delete: async (keys) => keys,
+				delete: async (keys) => ({ deleted: keys }),
 			},
 			async (component) => {
 				const rendered = component.render(60);
 				expect(rendered.every((line) => visibleWidth(line) <= 60)).toBe(true);
 				expect(rendered.some((line) => line.endsWith("│"))).toBe(true);
 				expect(rendered.some((line) => line.includes("╯"))).toBe(true);
-				component.handleInput("\t");
-				component.handleInput("\t");
-				expect(component.render(60).join("\n")).toContain("Scope:");
-				component.handleInput("\x1b[C");
-				component.handleInput("\x1b[D");
 				component.handleInput("\x1b[B");
-				component.handleInput("\x1b[A");
-				component.handleInput(" ");
+				component.handleInput("\x1b[B");
+				expect(component.render(60).join("\n")).toContain("Scope:");
+				component.handleInput("\x1b[D");
 				component.handleInput("\x1b[C");
 				component.handleInput(" ");
+				component.handleInput("\x1b[D");
 				component.handleInput(" ");
+				component.handleInput(" ");
+				component.handleInput("\x1b[A");
+				component.handleInput("\x1b[A");
+				component.handleInput("\x1b[B");
+				component.handleInput("\x1b[B");
+				component.handleInput("\r");
 				await new Promise((resolve) => setTimeout(resolve, 140));
 			},
 		);
-		expect(scopes.at(-1)).toEqual(["user"]);
+		expect(scopes.at(-1)).toEqual(["project"]);
 	});
 
 	it("renders search and delete failures without escaping the window", async () => {
@@ -243,8 +269,6 @@ describe("memory inspector TUI", () => {
 				component.handleInput("q");
 				await new Promise((resolve) => setTimeout(resolve, 140));
 				expect(component.render(40).join("\n")).toContain("Search failed");
-				component.handleInput("\t");
-				component.handleInput("\t");
 				component.handleInput(" ");
 				component.handleInput("\t");
 				component.handleInput(" ");
@@ -262,14 +286,13 @@ describe("memory inspector TUI", () => {
 			{ facts: many, edges: [] },
 			{
 				search: async () => [],
-				delete: async (keys) => keys,
+				delete: async (keys) => ({ deleted: keys }),
 			},
 			async (component) => {
 				component.handleInput("q");
 				await new Promise((resolve) => setTimeout(resolve, 140));
 				expect(component.render(80).join("\n")).toContain("No matching facts");
-				component.handleInput("\x1b[B");
-				component.handleInput("\x1b[B");
+				component.handleInput("\t");
 				component.handleInput("x");
 			},
 		);
@@ -278,12 +301,10 @@ describe("memory inspector TUI", () => {
 			{ facts: many, edges: [] },
 			{
 				search: async () => many,
-				delete: async () => [],
+				delete: async () => ({ deleted: [] }),
 			},
 			async (component) => {
 				expect(component.render(100).join("\n")).toContain("more");
-				component.handleInput("\t");
-				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\x1b[B");
 				component.handleInput("\x1b[A");
@@ -307,7 +328,7 @@ describe("memory inspector TUI", () => {
 						});
 					return snapshotFacts();
 				},
-				delete: async (keys) => keys,
+				delete: async (keys) => ({ deleted: keys }),
 			},
 			async (component) => {
 				component.handleInput("z");
@@ -334,7 +355,7 @@ describe("memory inspector TUI", () => {
 						});
 					return snapshotFacts();
 				},
-				delete: async (keys) => keys,
+				delete: async (keys) => ({ deleted: keys }),
 			},
 			async (component) => {
 				component.handleInput("a");
@@ -353,7 +374,10 @@ describe("memory inspector TUI", () => {
 		sparse[1] = fact(9);
 		await driveInspector(
 			{ facts: sparse, edges: [] },
-			{ search: async () => sparse, delete: async (keys) => keys },
+			{
+				search: async () => sparse,
+				delete: async (keys) => ({ deleted: keys }),
+			},
 			async (component) => {
 				expect(component.render(80).join("\n")).toContain("f9");
 			},
@@ -380,11 +404,9 @@ describe("memory inspector TUI", () => {
 			},
 			{
 				search: async () => [detailed],
-				delete: async (keys) => keys,
+				delete: async (keys) => ({ deleted: keys }),
 			},
 			async (component) => {
-				component.handleInput("\t");
-				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\r");
 				const rendered = component.render(100).join("\n");
@@ -402,12 +424,10 @@ describe("memory inspector TUI", () => {
 				search: async () => snapshotFacts(),
 				delete: async (keys) => {
 					await new Promise((resolve) => setTimeout(resolve, 50));
-					return keys;
+					return { deleted: keys };
 				},
 			},
 			async (component) => {
-				component.handleInput("\t");
-				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\x1b[3~");
 				component.handleInput(" ");

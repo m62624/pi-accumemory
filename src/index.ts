@@ -395,7 +395,8 @@ export default function accumemory(pi: ExtensionAPI): void {
 							`${keys.length} fact${keys.length === 1 ? "" : "s"} will be forgotten. ` +
 								"This removes them from recall; their old bytes are reclaimed by maintain.",
 						);
-						if (!confirmed || session === undefined) return [];
+						if (!confirmed || session === undefined)
+							return { deleted: [], message: "Deletion cancelled." };
 
 						const grouped = new Map<"project" | "user", number[]>();
 						for (const key of keys) {
@@ -419,7 +420,12 @@ export default function accumemory(pi: ExtensionAPI): void {
 						}
 						// One maintenance pass for the whole user action, never one per row.
 						await session.controller.maintain();
-						return deleted;
+						return {
+							deleted,
+							message:
+								`Forgot ${deleted.length} fact${deleted.length === 1 ? "" : "s"}. ` +
+								"They are gone from recall; storage maintenance completed.",
+						};
 					},
 				},
 				pageSize,

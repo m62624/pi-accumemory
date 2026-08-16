@@ -28,6 +28,11 @@ export interface InspectSnapshot {
 
 export type InspectKey = `${InspectScope}:${number}`;
 
+export interface InspectDeleteResult {
+	deleted: InspectKey[];
+	message?: string;
+}
+
 export interface InspectUi {
 	custom<T>(
 		factory: (
@@ -56,7 +61,7 @@ export interface InspectActions {
 		tags: string[],
 		scopes: readonly InspectScope[],
 	): Promise<InspectFactRow[]>;
-	delete(keys: InspectKey[]): Promise<InspectKey[]>;
+	delete(keys: InspectKey[]): Promise<InspectDeleteResult>;
 }
 
 const DEFAULT_PAGE_SIZE = 40;
@@ -147,7 +152,8 @@ export async function openMemoryInspector(
 		(tui, theme, _keybindings, done) => {
 			let facts = initial.facts;
 			const edges = initial.edges;
-			let focus: "query" | "tags" | "scope" | "list" = "query";
+			let focus: "search" | "list" = "search";
+			let searchField: "query" | "tags" | "scope" = "query";
 			let query = "";
 			let tags = "";
 			let queryCursor = 0;
@@ -157,6 +163,7 @@ export async function openMemoryInspector(
 			let expanded = false;
 			let busy = "";
 			let error = "";
+			let notice = "";
 			let searchTimer: ReturnType<typeof setTimeout> | undefined;
 			let searchSerial = 0;
 			const selection = new InspectSelection(facts);
@@ -165,6 +172,7 @@ export async function openMemoryInspector(
 
 			const runSearch = () => {
 				if (searchTimer !== undefined) clearTimeout(searchTimer);
+				notice = "";
 				const serial = ++searchSerial;
 				searchTimer = setTimeout(async () => {
 					busy = "Searching…";
@@ -194,13 +202,20 @@ export async function openMemoryInspector(
 				if (keys.length === 0) return;
 				busy = `Deleting ${keys.length}…`;
 				error = "";
+				notice = "";
 				renderRequest();
 				try {
-					const deleted = await actions.delete(keys);
+					const result = await actions.delete(keys);
+					const deleted = result.deleted;
 					const deletedSet = new Set(deleted);
 					facts = facts.filter((fact) => !deletedSet.has(factKey(fact)));
 					selection.setFacts(facts);
 					expanded = false;
+					notice =
+						result.message ??
+						(deleted.length === 0
+							? "Nothing was deleted."
+							: `Forgot ${deleted.length} fact${deleted.length === 1 ? "" : "s"}; removed from recall.`);
 				} catch (reason) {
 					error = `Delete failed: ${reason instanceof Error ? reason.message : String(reason)}`;
 				} finally {
@@ -306,7 +321,9 @@ export async function openMemoryInspector(
 					const scopeText = (["project", "user"] as const)
 						.map((scope, index) => {
 							const marker =
-								focus === "scope" && scopeCursor === index
+								focus === "search" &&
+								searchField === "scope" &&
+								scopeCursor === index
 									? theme.fg("accent", "›")
 									: " ";
 							const box = selectedScopes.has(scope) ? "[x]" : "[ ]";
@@ -327,7 +344,7 @@ export async function openMemoryInspector(
 								"Search",
 								query,
 								queryCursor,
-								focus === "query",
+								focus === "search" && searchField === "query",
 								contentWidth,
 							),
 						),
@@ -336,7 +353,7 @@ export async function openMemoryInspector(
 								"Tags",
 								tags,
 								tagsCursor,
-								focus === "tags",
+								focus === "search" && searchField === "tags",
 								contentWidth,
 							),
 						),
@@ -344,7 +361,7 @@ export async function openMemoryInspector(
 						frameLine(
 							theme.fg(
 								"dim",
-								"Tab fields/scope/list · ↑↓ move · Space checkbox · Enter expand · x/Delete remove",
+								"Tab search/list · ↑↓ field/item · ←→ scope · Space select · Enter open/delete · x/Delete remove",
 							),
 						),
 						frameLine(
@@ -356,6 +373,7 @@ export async function openMemoryInspector(
 					];
 					if (busy !== "") lines.push(frameLine(theme.fg("warning", busy)));
 					if (error !== "") lines.push(frameLine(theme.fg("error", error)));
+					if (notice !== "") lines.push(frameLine(theme.fg("success", notice)));
 					lines.push(
 						frameLine(theme.fg("dim", "─".repeat(Math.max(1, contentWidth)))),
 					);
@@ -387,7 +405,7 @@ export async function openMemoryInspector(
 						frameLine(
 							theme.fg(
 								"dim",
-								"Enter confirm deletion when items are checked · Esc close",
+								"Space only marks a fact · Enter or x/Delete starts confirmed deletion · Esc close",
 							),
 						),
 					);
@@ -404,22 +422,32 @@ export async function openMemoryInspector(
 						return;
 					}
 					if (is("tab")) {
-						focus =
-							focus === "query"
-								? "tags"
-								: focus === "tags"
-									? "scope"
-									: focus === "scope"
-										? "list"
-										: "query";
+						focus = focus === "search" ? "list" : "search";
 						renderRequest();
 						return;
 					}
-					if (focus === "query" || focus === "tags") {
-						const value = focus === "query" ? query : tags;
-						const cursor = focus === "query" ? queryCursor : tagsCursor;
-						if (is("enter") || is("down")) {
-							focus = focus === "query" ? "tags" : "scope";
+					if (focus === "search") {
+						if (searchField === "scope") {
+							if (is("left")) scopeCursor = Math.max(0, scopeCursor - 1);
+							else if (is("right")) scopeCursor = Math.min(1, scopeCursor + 1);
+							else if (is("space")) {
+								const scope = scopeCursor === 0 ? "project" : "user";
+								if (selectedScopes.has(scope)) selectedScopes.delete(scope);
+								else selectedScopes.add(scope);
+								runSearch();
+							} else if (is("up")) searchField = "tags";
+							renderRequest();
+							return;
+						}
+						const value = searchField === "query" ? query : tags;
+						const cursor = searchField === "query" ? queryCursor : tagsCursor;
+						if (is("down") || is("enter")) {
+							searchField = searchField === "query" ? "tags" : "scope";
+							renderRequest();
+							return;
+						}
+						if (is("up")) {
+							searchField = "query";
 							renderRequest();
 							return;
 						}
@@ -430,7 +458,7 @@ export async function openMemoryInspector(
 						const nextPosition = isPrintable(data)
 							? cursor + data.length
 							: nextCursor;
-						if (focus === "query") {
+						if (searchField === "query") {
 							query = nextValue;
 							queryCursor = nextPosition;
 						} else {
@@ -438,20 +466,6 @@ export async function openMemoryInspector(
 							tagsCursor = nextPosition;
 						}
 						runSearch();
-						renderRequest();
-						return;
-					}
-					if (focus === "scope") {
-						if (is("left") || is("up"))
-							scopeCursor = Math.max(0, scopeCursor - 1);
-						else if (is("right") || is("down"))
-							scopeCursor = Math.min(1, scopeCursor + 1);
-						else if (is("space")) {
-							const scope = scopeCursor === 0 ? "project" : "user";
-							if (selectedScopes.has(scope)) selectedScopes.delete(scope);
-							else selectedScopes.add(scope);
-							runSearch();
-						} else if (is("enter")) focus = "list";
 						renderRequest();
 						return;
 					}
