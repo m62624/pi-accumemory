@@ -3,17 +3,21 @@ import {
 	type KeyId,
 	matchesKey,
 	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { EdgeRef, FactCard } from "../storage/port.ts";
 
+export type InspectScope = "project" | "user";
+
 export interface InspectFactRow {
-	scope: "project" | "user";
+	scope: InspectScope;
 	label: string;
 	card: FactCard;
 }
 
 export interface InspectEdgeRow extends EdgeRef {
-	scope: "project" | "user";
+	scope: InspectScope;
 	label: string;
 }
 
@@ -22,7 +26,7 @@ export interface InspectSnapshot {
 	edges: InspectEdgeRow[];
 }
 
-export type InspectKey = `${"project" | "user"}:${number}`;
+export type InspectKey = `${InspectScope}:${number}`;
 
 export interface InspectUi {
 	custom<T>(
@@ -47,7 +51,11 @@ export interface InspectUi {
 }
 
 export interface InspectActions {
-	search(query: string, tags: string[]): Promise<InspectFactRow[]>;
+	search(
+		query: string,
+		tags: string[],
+		scopes: readonly InspectScope[],
+	): Promise<InspectFactRow[]>;
 	delete(keys: InspectKey[]): Promise<InspectKey[]>;
 }
 
@@ -139,11 +147,13 @@ export async function openMemoryInspector(
 		(tui, theme, _keybindings, done) => {
 			let facts = initial.facts;
 			const edges = initial.edges;
-			let focus: "query" | "tags" | "list" = "query";
+			let focus: "query" | "tags" | "scope" | "list" = "query";
 			let query = "";
 			let tags = "";
 			let queryCursor = 0;
 			let tagsCursor = 0;
+			let scopeCursor = 0;
+			const selectedScopes = new Set<InspectScope>(["project", "user"]);
 			let expanded = false;
 			let busy = "";
 			let error = "";
@@ -161,7 +171,9 @@ export async function openMemoryInspector(
 					error = "";
 					renderRequest();
 					try {
-						const next = await actions.search(query, parseInspectTags(tags));
+						const next = await actions.search(query, parseInspectTags(tags), [
+							...selectedScopes,
+						]);
 						if (serial !== searchSerial) return;
 						facts = next;
 						selection.setFacts(facts);
@@ -236,14 +248,8 @@ export async function openMemoryInspector(
 				return truncateToWidth(shown, width, "");
 			};
 
-			const wrap = (value: string, width: number): string[] => {
-				const clean = value.replace(/[\r\n]+/gu, " ");
-				if (clean === "") return [""];
-				const lines: string[] = [];
-				for (let at = 0; at < clean.length; at += Math.max(1, width))
-					lines.push(clean.slice(at, at + Math.max(1, width)));
-				return lines;
-			};
+			const wrap = (value: string, width: number): string[] =>
+				wrapTextWithAnsi(value.replace(/[\r\n]+/gu, " "), Math.max(1, width));
 
 			const detailLines = (fact: InspectFactRow, width: number): string[] => {
 				const card = fact.card;
@@ -268,26 +274,90 @@ export async function openMemoryInspector(
 			return {
 				render(width: number): string[] {
 					const safe = Math.max(8, width);
-					const inner = Math.max(4, safe - 2);
+					const contentWidth = Math.max(1, safe - 4);
+					const border = (role: string, text: string): string =>
+						theme.fg(role, text);
+					const frameLine = (content = ""): string => {
+						const clipped = truncateToWidth(content, contentWidth, "");
+						return `${border("border", "│")} ${clipped}${" ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)))} ${border("border", "│")}`;
+					};
+					const frameTop = `${border("border", "╭")}${border("border", "─".repeat(Math.max(0, safe - 2)))}${border("border", "╮")}`;
+					const frameBottom = `${border("border", "╰")}${border("border", "─".repeat(Math.max(0, safe - 2)))}${border("border", "╯")}`;
+					const factLines = (
+						fact: InspectFactRow,
+						current: boolean,
+					): string[] => {
+						const checked = selection.isSelected(fact);
+						const box = checked ? "[x]" : "[ ]";
+						const lead = `${current ? "›" : " "} ${box} [f${fact.card.id}] ${fact.scope} · `;
+						const continuation = " ".repeat(visibleWidth(lead));
+						const textLines = wrap(
+							fact.card.text,
+							contentWidth - visibleWidth(lead),
+						);
+						const rows = [
+							`${lead}${textLines[0] ?? ""}`,
+							...textLines.slice(1).map((line) => `${continuation}${line}`),
+						];
+						return rows.map((line) =>
+							current ? theme.fg("accent", line) : line,
+						);
+					};
+					const scopeText = (["project", "user"] as const)
+						.map((scope, index) => {
+							const marker =
+								focus === "scope" && scopeCursor === index
+									? theme.fg("accent", "›")
+									: " ";
+							const box = selectedScopes.has(scope) ? "[x]" : "[ ]";
+							return `${marker} ${box} ${scope}`;
+						})
+						.join("   ");
 					const lines: string[] = [
-						theme.fg("border", `╭${"─".repeat(inner)}╮`),
-						`${theme.fg("border", "│")} ${theme.fg("accent", theme.bold("Long-term memory"))}`,
-						`${theme.fg("border", "│")} ${theme.fg("dim", "Search facts, inspect full data, and mark several for deletion")}`,
-						`${theme.fg("border", "│")} ${inputLine("Search", query, queryCursor, focus === "query", inner - 1)}`,
-						`${theme.fg("border", "│")} ${inputLine("Tags", tags, tagsCursor, focus === "tags", inner - 1)}`,
-						`${theme.fg("border", "│")} ${theme.fg("dim", "Tab fields/list · ↑↓ move · Space checkbox · Enter expand · x/Delete remove")}`,
-						`${theme.fg("border", "│")} ${theme.fg("dim", `${facts.length} result${facts.length === 1 ? "" : "s"} · ${edges.length} graph links · ${selection.selectedCount()} selected`)}`,
+						frameTop,
+						frameLine(theme.fg("accent", theme.bold("Long-term memory"))),
+						frameLine(
+							theme.fg(
+								"dim",
+								"Search facts, inspect full data, and mark several for deletion",
+							),
+						),
+						frameLine(
+							inputLine(
+								"Search",
+								query,
+								queryCursor,
+								focus === "query",
+								contentWidth,
+							),
+						),
+						frameLine(
+							inputLine(
+								"Tags",
+								tags,
+								tagsCursor,
+								focus === "tags",
+								contentWidth,
+							),
+						),
+						frameLine(`Scope: ${scopeText}`),
+						frameLine(
+							theme.fg(
+								"dim",
+								"Tab fields/scope/list · ↑↓ move · Space checkbox · Enter expand · x/Delete remove",
+							),
+						),
+						frameLine(
+							theme.fg(
+								"dim",
+								`${facts.length} result${facts.length === 1 ? "" : "s"} · ${edges.length} graph links · ${selection.selectedCount()} selected`,
+							),
+						),
 					];
-					if (busy !== "")
-						lines.push(
-							`${theme.fg("border", "│")} ${theme.fg("warning", busy)}`,
-						);
-					if (error !== "")
-						lines.push(
-							`${theme.fg("border", "│")} ${theme.fg("error", error)}`,
-						);
+					if (busy !== "") lines.push(frameLine(theme.fg("warning", busy)));
+					if (error !== "") lines.push(frameLine(theme.fg("error", error)));
 					lines.push(
-						`${theme.fg("border", "│")} ${theme.fg("dim", "─".repeat(Math.max(1, inner - 1)))}`,
+						frameLine(theme.fg("dim", "─".repeat(Math.max(1, contentWidth)))),
 					);
 
 					const visiblePageSize = Math.max(
@@ -296,35 +366,32 @@ export async function openMemoryInspector(
 					);
 					const page = inspectPage(facts, selection.cursor, visiblePageSize);
 					if (facts.length === 0)
-						lines.push(
-							`${theme.fg("border", "│")} ${theme.fg("dim", "No matching facts.")}`,
-						);
+						lines.push(frameLine(theme.fg("dim", "No matching facts.")));
 					for (let index = page.start; index < page.end; index++) {
 						const fact = facts[index];
 						if (fact === undefined) continue;
 						const current = index === selection.cursor;
-						const checked = selection.isSelected(fact);
-						const prefix = current ? theme.fg("accent", "›") : " ";
-						const box = checked ? theme.fg("accent", "[x]") : "[ ]";
-						const head = `${prefix} ${box} [f${fact.card.id}] ${fact.scope} · ${fact.card.text}`;
-						lines.push(
-							`${theme.fg("border", "│")} ${truncateToWidth(current ? theme.fg("accent", head) : head, inner - 1, "")}`,
-						);
+						for (const row of factLines(fact, current))
+							lines.push(frameLine(row));
 						if (expanded && current) {
-							for (const line of detailLines(fact, inner - 3))
-								lines.push(
-									`${theme.fg("border", "│")}   ${truncateToWidth(line, inner - 3, "")}`,
-								);
+							for (const detail of detailLines(fact, contentWidth - 2))
+								for (const line of wrap(detail, contentWidth - 2))
+									lines.push(frameLine(`  ${line}`));
 						}
 					}
 					if (facts.length > page.end)
 						lines.push(
-							`${theme.fg("border", "│")} ${theme.fg("dim", `… ${facts.length - page.end} more`)}`,
+							frameLine(theme.fg("dim", `… ${facts.length - page.end} more`)),
 						);
 					lines.push(
-						`${theme.fg("border", "│")} ${theme.fg("dim", "Enter confirm deletion when items are checked · Esc close")}`,
+						frameLine(
+							theme.fg(
+								"dim",
+								"Enter confirm deletion when items are checked · Esc close",
+							),
+						),
 					);
-					lines.push(theme.fg("border", `╰${"─".repeat(inner)}╯`));
+					lines.push(frameBottom);
 					return lines.map((line) => truncateToWidth(line, safe, ""));
 				},
 
@@ -338,7 +405,13 @@ export async function openMemoryInspector(
 					}
 					if (is("tab")) {
 						focus =
-							focus === "query" ? "tags" : focus === "tags" ? "list" : "query";
+							focus === "query"
+								? "tags"
+								: focus === "tags"
+									? "scope"
+									: focus === "scope"
+										? "list"
+										: "query";
 						renderRequest();
 						return;
 					}
@@ -346,7 +419,7 @@ export async function openMemoryInspector(
 						const value = focus === "query" ? query : tags;
 						const cursor = focus === "query" ? queryCursor : tagsCursor;
 						if (is("enter") || is("down")) {
-							focus = focus === "query" ? "tags" : "list";
+							focus = focus === "query" ? "tags" : "scope";
 							renderRequest();
 							return;
 						}
@@ -365,6 +438,20 @@ export async function openMemoryInspector(
 							tagsCursor = nextPosition;
 						}
 						runSearch();
+						renderRequest();
+						return;
+					}
+					if (focus === "scope") {
+						if (is("left") || is("up"))
+							scopeCursor = Math.max(0, scopeCursor - 1);
+						else if (is("right") || is("down"))
+							scopeCursor = Math.min(1, scopeCursor + 1);
+						else if (is("space")) {
+							const scope = scopeCursor === 0 ? "project" : "user";
+							if (selectedScopes.has(scope)) selectedScopes.delete(scope);
+							else selectedScopes.add(scope);
+							runSearch();
+						} else if (is("enter")) focus = "list";
 						renderRequest();
 						return;
 					}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	factKey,
 	type InspectFactRow,
+	type InspectScope,
 	InspectSelection,
 	type InspectSnapshot,
 	inspectPage,
@@ -100,7 +101,11 @@ const testTheme = {
 async function driveInspector(
 	initial: InspectSnapshot,
 	actions: {
-		search: (query: string, tags: string[]) => Promise<InspectFactRow[]>;
+		search: (
+			query: string,
+			tags: string[],
+			scopes: readonly InspectScope[],
+		) => Promise<InspectFactRow[]>;
 		delete: (
 			keys: `${"project" | "user"}:${number}`[],
 		) => Promise<`${"project" | "user"}:${number}`[]>;
@@ -169,6 +174,7 @@ describe("memory inspector TUI", () => {
 				component.handleInput("d");
 				await new Promise((resolve) => setTimeout(resolve, 140));
 				component.handleInput("\t");
+				component.handleInput("\t");
 				component.handleInput("\r");
 				expect(component.render(100).join("\n")).toContain(
 					"Links in project: 1",
@@ -181,6 +187,42 @@ describe("memory inspector TUI", () => {
 		);
 		expect(searches).toContain("|d");
 		expect(deleted).toEqual([["project:1"]]);
+	});
+
+	it("filters by scope and wraps long facts inside a closed frame", async () => {
+		const scopes: InspectScope[][] = [];
+		const long = fact(8, "project");
+		long.card.text =
+			"a synthetic fact with enough words to wrap inside the inspector window";
+		await driveInspector(
+			{ facts: [long, fact(9, "user")], edges: [] },
+			{
+				search: async (_query, _tags, selected) => {
+					scopes.push([...selected]);
+					return [long];
+				},
+				delete: async (keys) => keys,
+			},
+			async (component) => {
+				const rendered = component.render(60);
+				expect(rendered.every((line) => visibleWidth(line) <= 60)).toBe(true);
+				expect(rendered.some((line) => line.endsWith("│"))).toBe(true);
+				expect(rendered.some((line) => line.includes("╯"))).toBe(true);
+				component.handleInput("\t");
+				component.handleInput("\t");
+				expect(component.render(60).join("\n")).toContain("Scope:");
+				component.handleInput("\x1b[C");
+				component.handleInput("\x1b[D");
+				component.handleInput("\x1b[B");
+				component.handleInput("\x1b[A");
+				component.handleInput(" ");
+				component.handleInput("\x1b[C");
+				component.handleInput(" ");
+				component.handleInput(" ");
+				await new Promise((resolve) => setTimeout(resolve, 140));
+			},
+		);
+		expect(scopes.at(-1)).toEqual(["user"]);
 	});
 
 	it("renders search and delete failures without escaping the window", async () => {
@@ -202,6 +244,8 @@ describe("memory inspector TUI", () => {
 				await new Promise((resolve) => setTimeout(resolve, 140));
 				expect(component.render(40).join("\n")).toContain("Search failed");
 				component.handleInput("\t");
+				component.handleInput("\t");
+				component.handleInput(" ");
 				component.handleInput("\t");
 				component.handleInput(" ");
 				component.handleInput("x");
@@ -238,6 +282,7 @@ describe("memory inspector TUI", () => {
 			},
 			async (component) => {
 				expect(component.render(100).join("\n")).toContain("more");
+				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\x1b[B");
@@ -340,6 +385,7 @@ describe("memory inspector TUI", () => {
 			async (component) => {
 				component.handleInput("\t");
 				component.handleInput("\t");
+				component.handleInput("\t");
 				component.handleInput("\r");
 				const rendered = component.render(100).join("\n");
 				expect(rendered).toContain("Tags: #demo");
@@ -360,6 +406,7 @@ describe("memory inspector TUI", () => {
 				},
 			},
 			async (component) => {
+				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\t");
 				component.handleInput("\x1b[3~");

@@ -42,6 +42,7 @@ import { createBackgroundProgress } from "./ui/background-progress.ts";
 import { terminalWidth } from "./ui/fit.ts";
 import {
 	type InspectKey,
+	type InspectScope,
 	type InspectSnapshot,
 	openMemoryInspector,
 } from "./ui/memory-inspect.ts";
@@ -379,9 +380,15 @@ export default function accumemory(pi: ExtensionAPI): void {
 				ctx.ui,
 				snapshot,
 				{
-					search: async (query, tags) =>
-						session?.controller.inspectFacts(query, tags, "both", pageSize) ??
-						[],
+					search: async (query, tags, scopes) => {
+						if (scopes.length === 0) return [];
+						const scope: "project" | "user" | "both" =
+							scopes.length === 2 ? "both" : (scopes[0] as InspectScope);
+						return (
+							session?.controller.inspectFacts(query, tags, scope, pageSize) ??
+							[]
+						);
+					},
 					delete: async (keys) => {
 						const confirmed = await ctx.ui.confirm(
 							"Delete selected memory facts?",

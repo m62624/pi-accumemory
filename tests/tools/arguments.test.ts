@@ -111,8 +111,17 @@ describe("tool arguments", () => {
 		]);
 	});
 
+	it("reports an empty batch without writing", async () => {
+		const { call, project } = build();
+		expect(await call("longterm_remember_many", { facts: [] })).toMatch(
+			/non-empty facts list/i,
+		);
+		expect(project.live()).toEqual([]);
+	});
+
 	it("reports an item error without rolling back earlier items", async () => {
 		const { call, project } = build();
+		project.failNextWrite = new Error("synthetic write failure");
 		const answer = await call("longterm_remember_many", {
 			facts: [
 				{ text: "first independent fact" },
@@ -120,10 +129,10 @@ describe("tool arguments", () => {
 				{ text: "third independent fact" },
 			],
 		});
-		expect(answer).toContain("3 atomic facts: 2 stored, 0 blocked, 1 error");
+		expect(answer).toContain("3 atomic facts: 1 stored, 0 blocked, 2 errors");
+		expect(answer).toContain("[0] error: synthetic write failure");
 		expect(answer).toContain("[1] error:");
 		expect(project.live().map((fact) => fact.text)).toEqual([
-			"first independent fact",
 			"third independent fact",
 		]);
 	});
