@@ -94,22 +94,16 @@ describe("the release workflow", () => {
 		expect(jobs.release?.needs).toContain("publish");
 	});
 
-	it("asks for provenance and the identity token that signs it", async () => {
-		// Provenance is what lets someone verify the tarball was built from this
-		// repository. It is signed with the workflow's OIDC identity, so it
-		// works with a token today and keeps working after the switch to
-		// trusted publishing.
+	it("uses OIDC trusted publishing and asks for provenance", async () => {
+		// Both package authentication and provenance use the workflow's OIDC
+		// identity. Keeping npm tokens out of the workflow prevents a static
+		// credential from becoming a release dependency.
 		const text = await readFile(path.join(WORKFLOWS, "release.yml"), "utf8");
 		expect(text).toContain("--provenance");
 		expect(text).toContain("id-token: write");
-	});
-
-	it("fails loudly when the publish token is missing", async () => {
-		// Without this the npm CLI fails somewhere deeper with a less obvious
-		// message, halfway through a release.
-		const text = await readFile(path.join(WORKFLOWS, "release.yml"), "utf8");
-		expect(text).toContain("NPM_TOKEN");
-		expect(text).toMatch(/Secret NPM_TOKEN is not set/);
+		expect(text).not.toContain("NPM_TOKEN");
+		expect(text).not.toContain("NODE_AUTH_TOKEN");
+		expect(text).not.toContain("secrets.NPM_TOKEN");
 	});
 
 	it("does not republish a version that is already on npm", async () => {

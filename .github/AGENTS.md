@@ -15,12 +15,14 @@ GitHub automation for this TypeScript Pi extension: CI, PR labeling, the release
   and a coverage report is one commit from entering the history.
 - Only the `CI passed` check is a required branch-protection gate — it aggregates the
   real jobs, so branch protection never needs editing when jobs change.
-- npm publishing currently uses an **automation token** (`secrets.NPM_TOKEN`), because
-  trusted publishing cannot be configured before the package exists on npm. After the
-  first release, set the package up for trusted publishing and delete the
-  `NODE_AUTH_TOKEN` line in `workflows/release.yml`; `id-token: write` is already
-  granted, so nothing else changes.
-- `--provenance` is independent of how the publish authenticates and must stay.
+- npm publishing uses **trusted publishing (OIDC)**. The publish job has
+  `id-token: write` and must not use `NPM_TOKEN` or `NODE_AUTH_TOKEN`.
+- The first package release is published manually from a logged-in terminal because
+  npm can only configure trusted publishing after the package exists. Then configure
+  npm trusted publishing for `m62624/pi-accumemory`, GitHub Actions, and
+  `.github/workflows/release.yml`.
+- `--provenance` must stay: it lets users verify that the npm tarball came from this
+  repository and commit.
 - Release notes depend on PR labels; the labeler and the changelog config must key off
   the same names.
 - This is a TypeScript package: never add Rust/bench steps.
@@ -42,7 +44,6 @@ GitHub automation for this TypeScript Pi extension: CI, PR labeling, the release
 ## Secrets And Variables
 | name | kind | used by | needed for |
 |---|---|---|---|
-| `NPM_TOKEN` | secret | `release.yml` | publishing to npm until trusted publishing is set up |
 | `TANGLED_SSH_KEY` | secret | `mirror-tangled.yml` | the Tangled mirror |
 | `TANGLED_REMOTE` | variable | `mirror-tangled.yml` | the Tangled remote URL |
 
