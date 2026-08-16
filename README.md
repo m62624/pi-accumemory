@@ -343,9 +343,20 @@ with the files.
 
 ## Install
 
-```sh
+Released versions, published to npm:
+
+```bash
 pi install npm:pi-accumemory
 ```
+
+Developer version: the latest `main`, including changes not yet released to npm:
+
+```bash
+pi install git:github.com/m62624/pi-accumemory
+```
+
+The npm package follows tagged releases; the GitHub package follows `main`.
+Both channels can have bugs.
 
 The extension works with defaults. To match questions by meaning as well as by
 words, configure an embedder in plugmem's `config.toml`; see
