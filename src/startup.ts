@@ -30,6 +30,7 @@ import { NoteStore } from "./notes/store.ts";
 import { fromStoredPath, toStoredPath } from "./paths/path-codec.ts";
 import { locateProject } from "./project/detect.ts";
 import { ProjectRouter } from "./router/router.ts";
+import { createSecretGuard } from "./security/secret-guard.ts";
 import { MemoryController } from "./session/controller.ts";
 import { StumbleLog } from "./session/stumbles.ts";
 import { clockLine } from "./session/tail.ts";
@@ -350,10 +351,15 @@ export async function startSession(
 		"notes",
 	]);
 
+	const secretGuard = createSecretGuard(
+		undefined,
+		settings.memory.security.customPatterns,
+	);
 	const notesCommon = new NoteStore(common, {
 		fs,
 		dir: layout.commonNotesDir,
 		flavour: pathModule,
+		secretGuard,
 	});
 
 	// Counted across sessions, so it needs an id that is unique per process and
@@ -382,6 +388,7 @@ export async function startSession(
 						fs,
 						dir: layout.projectNotesDir(projectId),
 						flavour: pathModule,
+						secretGuard,
 					}),
 				}),
 		router,
@@ -398,6 +405,7 @@ export async function startSession(
 			embedderState: () => (projectWriter ?? commonReader).embedderState(),
 		},
 		stumbles,
+		secretGuard,
 		// Another project's memory, read-only. A shared lock coexists with the
 		// writer a session in that project is holding, so the question is safe
 		// to ask while somebody is working there.

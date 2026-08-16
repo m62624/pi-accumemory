@@ -76,6 +76,17 @@ export interface InspectSettings {
 	pageSize: number;
 }
 
+export interface CustomSecretPattern {
+	name: string;
+	pattern: string;
+	description: string;
+}
+
+export interface SecuritySettings {
+	/** Additional blocking rules; built-in rules cannot be disabled or overridden. */
+	customPatterns: CustomSecretPattern[];
+}
+
 /**
  * The habit phase: a mistake the model has repeated across sessions.
  *
@@ -177,6 +188,7 @@ export interface Settings {
 		notes: { overviewMaxChars: number };
 		nudge: NudgeSettings;
 		inspect: InspectSettings;
+		security: SecuritySettings;
 		consolidation: ConsolidationSettings;
 		crossProject: { enabled: boolean };
 	};
@@ -232,6 +244,9 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 		},
 		inspect: {
 			pageSize: 40,
+		},
+		security: {
+			customPatterns: [],
 		},
 		consolidation: {
 			enabled: true,

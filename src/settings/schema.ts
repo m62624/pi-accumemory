@@ -23,6 +23,8 @@ type FieldSpec =
 	| { kind: "choice"; of: readonly string[] }
 	/** A list of non-empty strings; the empty list is a legitimate value. */
 	| { kind: "strings" }
+	/** Additional secret-blocking regex objects, validated and filtered at load. */
+	| { kind: "customPatterns" }
 	| { kind: "section"; fields: Record<string, FieldSpec> };
 
 const COUNT: FieldSpec = { kind: "count" };
@@ -74,6 +76,10 @@ const SCHEMA: Record<string, FieldSpec> = {
 			inspect: {
 				kind: "section",
 				fields: { pageSize: COUNT },
+			},
+			security: {
+				kind: "section",
+				fields: { customPatterns: { kind: "customPatterns" } },
 			},
 			consolidation: {
 				kind: "section",
@@ -187,7 +193,7 @@ function overlay(
 			);
 			const spec = specAt(renamed);
 			if (spec !== undefined) {
-				setAt(root, renamed, checkScalar(dotted, value, spec));
+				setAt(root, renamed, checkScalar(dotted, value, spec, warnings));
 			}
 			continue;
 		}
@@ -210,11 +216,16 @@ function overlay(
 			);
 			continue;
 		}
-		target[key] = checkScalar(dotted, value, spec);
+		target[key] = checkScalar(dotted, value, spec, warnings);
 	}
 }
 
-function checkScalar(dotted: string, value: unknown, spec: FieldSpec): unknown {
+function checkScalar(
+	dotted: string,
+	value: unknown,
+	spec: FieldSpec,
+	warnings: string[] = [],
+): unknown {
 	if (spec.kind === "section") {
 		throw new SettingsError(`settings: "${dotted}" must be an object`);
 	}
@@ -261,6 +272,8 @@ function checkScalar(dotted: string, value: unknown, spec: FieldSpec): unknown {
 			}
 			return [...(value as string[])];
 		}
+		case "customPatterns":
+			return checkCustomPatterns(dotted, value, warnings);
 		case "choice":
 			// Named rather than "invalid value": a typo in one of three words is
 			// fixed in a second when the three are printed, and guessed at for
@@ -272,6 +285,74 @@ function checkScalar(dotted: string, value: unknown, spec: FieldSpec): unknown {
 			}
 			return value;
 	}
+}
+
+const MAX_CUSTOM_PATTERNS = 64;
+const MAX_CUSTOM_PATTERN_CHARS = 500;
+
+function checkCustomPatterns(
+	dotted: string,
+	value: unknown,
+	warnings: string[],
+): Array<{ name: string; pattern: string; description: string }> {
+	if (!Array.isArray(value))
+		throw new SettingsError(`settings: "${dotted}" must be an array`);
+	if (value.length > MAX_CUSTOM_PATTERNS) {
+		warnings.push(
+			`settings: "${dotted}" has more than ${MAX_CUSTOM_PATTERNS} entries; extras were ignored`,
+		);
+	}
+	const valid: Array<{ name: string; pattern: string; description: string }> =
+		[];
+	for (const [index, entry] of value.slice(0, MAX_CUSTOM_PATTERNS).entries()) {
+		if (!isPlainObject(entry)) {
+			throw new SettingsError(
+				`settings: "${dotted}[${index}]" must be an object`,
+			);
+		}
+		const name = entry.name;
+		const pattern = entry.pattern;
+		const description = entry.description;
+		if (typeof name !== "string" || name.trim() === "") {
+			throw new SettingsError(
+				`settings: "${dotted}[${index}].name" must be a non-empty string`,
+			);
+		}
+		if (typeof pattern !== "string" || pattern.trim() === "") {
+			throw new SettingsError(
+				`settings: "${dotted}[${index}].pattern" must be a non-empty string`,
+			);
+		}
+		if (typeof description !== "string" || description.trim() === "") {
+			throw new SettingsError(
+				`settings: "${dotted}[${index}].description" must be a non-empty string`,
+			);
+		}
+		const extra = Object.keys(entry).filter(
+			(key) => !["name", "pattern", "description"].includes(key),
+		);
+		if (extra.length > 0) {
+			warnings.push(
+				`settings: "${dotted}[${index}]" ignores unsupported key(s) ${extra.join(", ")}; custom patterns always block`,
+			);
+		}
+		if (pattern.length > MAX_CUSTOM_PATTERN_CHARS) {
+			warnings.push(
+				`settings: "${dotted}[${index}].pattern" is longer than ${MAX_CUSTOM_PATTERN_CHARS} characters and was ignored`,
+			);
+			continue;
+		}
+		try {
+			new RegExp(pattern, "gu");
+		} catch {
+			warnings.push(
+				`settings: "${dotted}[${index}].pattern" is an invalid regular expression and was ignored`,
+			);
+			continue;
+		}
+		valid.push({ name: name.trim(), pattern, description: description.trim() });
+	}
+	return valid;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

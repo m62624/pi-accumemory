@@ -1,4 +1,5 @@
 import { scanString } from "@visulima/secret-scanner";
+import type { CustomSecretPattern } from "../settings/defaults.ts";
 
 /** The small part of a scanner finding that the policy needs. */
 export interface SecretFinding {
@@ -35,6 +36,8 @@ export interface SecretCheck {
 export interface SecretGuard {
 	check(parts: readonly SecretWritePart[]): Promise<SecretCheck>;
 }
+
+const MAX_CUSTOM_PATTERN_CHARS = 500;
 
 const SECRET_CONTEXT =
 	/\b(?:api[ _-]?key|api[ _-]?token|access[ _-]?key|access[ _-]?token|auth(?:orization)?|bearer|basic[ _-]?auth|client[ _-]?secret|connection[ _-]?string|cookie|credential|database[ _-]?url|jwt|oauth|password|passwd|private[ _-]?key|refresh[ _-]?token|secret|session[ _-]?id|signing[ _-]?key|ssh[ _-]?key|token|webhook)\b/i;
@@ -112,7 +115,7 @@ const LOCAL_PATTERNS: ReadonlyArray<{
 	},
 	{
 		pattern:
-			/^\s*(?:export\s+)?(?:API[_-]?KEY|API[_-]?TOKEN|ACCESS[_-]?(?:KEY|TOKEN)|AUTH(?:ORIZATION)?|BEARER|CLIENT[_-]?SECRET|COOKIE|DATABASE[_-]?URL|DB[_-]?(?:PASSWORD|URL)|PASSWORD|PASSWD|PRIVATE[_-]?KEY|SECRET|SESSION[_-]?ID|SIGNING[_-]?KEY|TOKEN|WEBHOOK)\s*[:=]\s*(?:"[^"\r\n]{8,}"|'[^'\r\n]{8,}'|[^\s#]{8,})/gim,
+			/(?:^|[^\w])(?:export\s+)?(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|API[_-]?TOKEN|ACCESS[_-]?(?:KEY|TOKEN)|AUTH(?:ORIZATION)?|BEARER|CLIENT[_-]?SECRET|COOKIE|DATABASE[_-]?URL|DB[_-]?(?:PASSWORD|URL)|PASSWORD|PASSWD|PRIVATE[_-]?KEY|SECRET|SESSION[_-]?ID|SIGNING[_-]?KEY|TOKEN|WEBHOOK)(?:[_-](?:VALUE|TEXT|STRING|MATERIAL))?\s*[:=]\s*(?:"[^"\r\n]{8,}"|'[^'\r\n]{8,}'|[^\s#]{8,})/gim,
 		description: "secret-bearing environment variable",
 	},
 	{
@@ -164,6 +167,39 @@ function localFindings(content: string): SecretFinding[] {
 	return findings;
 }
 
+function customFindings(
+	content: string,
+	patterns: readonly CustomSecretPattern[],
+): SecretFinding[] {
+	const findings: SecretFinding[] = [];
+	for (const custom of patterns) {
+		if (custom.pattern.length > MAX_CUSTOM_PATTERN_CHARS) continue;
+		let regex: RegExp;
+		try {
+			regex = new RegExp(custom.pattern, "gu");
+		} catch {
+			continue;
+		}
+		for (const match of content.matchAll(regex)) {
+			const matchText = match[0];
+			if (matchText.length === 0) continue;
+			const start = match.index ?? 0;
+			const before = content.slice(0, start);
+			const lineStart = before.lastIndexOf("\n") + 1;
+			const startLine = before.split("\n").length;
+			findings.push({
+				ruleId: `custom-${custom.name}`,
+				description: custom.description,
+				startLine,
+				endLine: startLine,
+				startColumn: start - lineStart + 1,
+				endColumn: start - lineStart + matchText.length + 1,
+			});
+		}
+	}
+	return findings;
+}
+
 function blockedMessage(
 	content: string,
 	findings: readonly SecretFinding[],
@@ -184,6 +220,7 @@ function blockedMessage(
 
 export function createSecretGuard(
 	scanner: SecretScanner = scanString,
+	customPatterns: readonly CustomSecretPattern[] = [],
 ): SecretGuard {
 	return {
 		async check(parts): Promise<SecretCheck> {
@@ -202,6 +239,10 @@ export function createSecretGuard(
 					blocked: true,
 					message: blockedMessage(content, localBlocking),
 				};
+			}
+			const custom = customFindings(content, customPatterns);
+			if (custom.length > 0) {
+				return { blocked: true, message: blockedMessage(content, custom) };
 			}
 			const needsBroadScan = included.some((part) =>
 				SECRET_VALUE_HINT.test(part.text),

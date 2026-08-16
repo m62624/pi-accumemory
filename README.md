@@ -244,6 +244,18 @@ credential context and conservative around unlabelled identifiers. No local
 detector can recognize every possible secret, so credentials should still stay
 out of prompts and transcripts whenever possible.
 
+Sensitive ENV names are matched by components, not only when the name starts
+with the sensitive word: `MY_SECRET`, `SERVICE_API_TOKEN`, and `DB_PASSWORD`
+are covered when the assigned value looks credential-like. Plain configuration
+values remain allowed, including `TOKEN_LIMIT=100`, `SECRET_MODE=enabled`, and
+`PASSWORD_POLICY=strict`.
+
+Custom organization-specific credential patterns can be added under
+`memory.security.customPatterns`. They are additive only: built-in rules cannot
+be disabled or overridden, and there are no `allow` patterns. The guard checks
+built-in rules first, then these custom patterns, then the broad offline
+scanner. Invalid regexes are ignored with a startup warning.
+
 ## Automatic memory work
 
 The model writes during a normal turn. Two separate background jobs handle

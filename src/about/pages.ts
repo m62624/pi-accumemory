@@ -461,6 +461,11 @@ and placeholders are not automatically blocked. The scan is offline and does
 not send candidate text to a provider. This protects permanent memory, not
 conversation text already seen by a model.
 
+Additional rules may be added in \`memory.security.customPatterns\`. They only
+add blocking: built-in rules cannot be disabled or overridden, and there are no
+\`allow\` patterns. Built-in rules run first, then custom patterns, then the broad
+offline scanner. Invalid custom regexes are ignored with a startup warning.
+
 **Most facts survive review, and that is the expected outcome.** Age is not a
 reason to delete anything. Only a date that has passed, a genuine duplicate, or a
 statement that is now false is.
@@ -528,6 +533,10 @@ because it can change during a session.
 
 **\`memory.autoReembed\`** - rebuild the stored vectors when they stop matching
 the embedder, instead of failing at the first lookup.
+
+**\`memory.security.customPatterns\`** - extra credential-blocking regexes.
+They only add protection: built-in rules cannot be disabled or overridden, and
+invalid patterns are ignored with a startup warning.
 
 **\`memory.refresh\`** - when the block is recomputed: after N tool calls, after
 a compaction.

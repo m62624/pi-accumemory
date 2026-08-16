@@ -55,6 +55,9 @@ day it does not.
 		"inspect": {
 			"pageSize": 40
 		},
+		"security": {
+			"customPatterns": []
+		},
 		"consolidation": {
 			"enabled": true,
 			"quietMs": 420000,
@@ -113,6 +116,7 @@ definition of a topic change.
 | `memory.recallK` | `0` | maximum facts per recall; `0` leaves the engine's own default |
 | `memory.graphDepth` | `null` | hops to follow along entity links; `null` uses the engine's own default, which is 2. Not a maximum: the walk is bounded by its entity and edge budgets, so a larger number costs more work rather than reaching further than allowed |
 | `memory.inspect.pageSize` | `40` | maximum number of matching facts loaded for one inspector search; the terminal height may show fewer rows |
+| `memory.security.customPatterns` | `[]` | additional credential-blocking regexes; built-in rules cannot be disabled or overridden |
 | `memory.manifest` | `true` | the one-line inventory shown once at session start, so the model knows there is something to ask about |
 | `memory.queryMaxChars` | `600` | ceiling on the recall query. Lexical retrieval degrades as terms pile up, and a pasted wall of text drowns the words that identify the question |
 | `memory.output` | `"short"` | how much of what a memory tool did is printed **in your terminal**. See below |
@@ -218,6 +222,49 @@ redacted trigger line returned to the model; ordinary identifiers, hashes and
 placeholders are not automatically blocked. The scan is offline and does not
 send candidate text to a provider. This protects permanent memory, not the
 conversation or any model context that already saw the text.
+
+Sensitive ENV names are matched by components, so `MY_SECRET`,
+`SERVICE_API_TOKEN`, and `DB_PASSWORD` are covered when their values look like
+credentials. Plain configuration values remain allowed, including
+`TOKEN_LIMIT=100`, `SECRET_MODE=enabled`, and `PASSWORD_POLICY=strict`.
+
+### Additional secret patterns: `memory.security.customPatterns`
+
+This collection only adds blocking rules for credentials specific to your
+organization. It cannot turn off or replace a built-in rule. There are no
+`allow` or `override` patterns: a custom rule can only make the guard stricter.
+
+Rules run in this order:
+
+1. built-in local rules for known credential shapes and high-confidence ENV
+   assignments;
+2. your `customPatterns`;
+3. the broad offline `@visulima/secret-scanner` rules.
+
+The first blocking rule wins and its trigger is redacted before the model sees
+the refusal. Each custom entry has `name`, `pattern`, and `description`:
+
+```json
+{
+	"memory": {
+		"security": {
+			"customPatterns": [
+				{
+					"name": "company-token",
+					"pattern": "\\bACME_[A-Z0-9]{24,}\\b",
+					"description": "company credential"
+				}
+			]
+		}
+	}
+}
+```
+
+Patterns are compiled as Unicode global regexes and limited to 500 characters.
+An invalid pattern is ignored and produces a startup warning naming its
+settings path; a wrongly typed settings value remains a normal settings error.
+Custom patterns should match the complete credential so the redacted trigger
+does not leave a secret fragment visible.
 
 The first phase reads the transcript, so it only ever weighs what was just
 discussed. The separate review leaves no fact stranded: a fact learned six

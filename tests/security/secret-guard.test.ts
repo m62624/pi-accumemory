@@ -45,6 +45,9 @@ describe("secret guard", () => {
 	it("covers local environment, connection, JWT and key formats", async () => {
 		for (const text of [
 			"API_TOKEN=synthetic-value-12345678",
+			"MY_SECRET=synthetic-value-12345678",
+			"SERVICE_API_TOKEN=synthetic-value-12345678",
+			"DB_PASSWORD=synthetic-value-12345678",
 			"Authorization: Bearer synthetic-authorization-value",
 			"DATABASE_URL=postgres://user:synthetic-pass@db.invalid/app",
 			"eyJsyntheticHeader.eyJsyntheticPayload.syntheticSignature",
@@ -54,6 +57,64 @@ describe("secret guard", () => {
 				defaultSecretGuard.check([{ label: "fact", text }]),
 			).resolves.toMatchObject({ blocked: true });
 		}
+	});
+
+	it("leaves ordinary configuration values alone", async () => {
+		for (const text of [
+			"TOKEN_LIMIT=100",
+			"SECRET_MODE=enabled",
+			"PASSWORD_POLICY=strict",
+		]) {
+			await expect(
+				defaultSecretGuard.check([{ label: "fact", text }]),
+			).resolves.toEqual({ blocked: false });
+		}
+	});
+
+	it("applies custom blocking patterns before the broad scanner", async () => {
+		const scanner = vi.fn(async (): Promise<readonly SecretFinding[]> => []);
+		const guard = createSecretGuard(scanner, [
+			{
+				name: "company-token",
+				pattern: "\\bACME_[A-Z0-9]{24,}\\b",
+				description: "company credential",
+			},
+		]);
+		const result = await guard.check([
+			{ label: "fact", text: "the value is ACME_123456789012345678901234" },
+		]);
+
+		expect(result.blocked).toBe(true);
+		expect(result.message).toContain("company credential");
+		expect(result.message).toContain("[redacted]");
+		expect(scanner).not.toHaveBeenCalled();
+	});
+
+	it("ignores invalid custom rules defensively at runtime", async () => {
+		const guard = createSecretGuard(
+			async (): Promise<readonly SecretFinding[]> => [],
+			[
+				{
+					name: "broken",
+					pattern: "[",
+					description: "broken rule",
+				},
+				{
+					name: "too-long",
+					pattern: "x".repeat(501),
+					description: "too long rule",
+				},
+				{
+					name: "empty-match",
+					pattern: "(?:)",
+					description: "empty rule",
+				},
+			],
+		);
+
+		await expect(
+			guard.check([{ label: "fact", text: "ordinary configuration" }]),
+		).resolves.toEqual({ blocked: false });
 	});
 
 	it("does not block an ordinary identifier finding", async () => {

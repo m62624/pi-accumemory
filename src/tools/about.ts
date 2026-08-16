@@ -158,6 +158,7 @@ export class AboutDesk {
 			`- instructions.alwaysMaxChars: ${memory.instructions.alwaysMaxChars}`,
 			`- notes.overviewMaxChars: ${memory.notes.overviewMaxChars}`,
 			`- inspect.pageSize: ${inspect.pageSize}`,
+			`- security.customPatterns: ${memory.security.customPatterns.length} additional blocking rules`,
 			`- timezone: ${timezone ?? "the machine's own"}`,
 			"",
 			"## Which folder gets its own memory",

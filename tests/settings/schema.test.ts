@@ -124,6 +124,95 @@ describe("parseSettings", () => {
 		expect(DEFAULT_SETTINGS.memory.plugmemConfig).toBeNull();
 	});
 
+	it("keeps valid custom secret patterns and warns on invalid ones", () => {
+		const { settings, warnings } = parseSettings({
+			memory: {
+				security: {
+					customPatterns: [
+						{
+							name: "company-token",
+							pattern: "\\bACME_[A-Z0-9]{24,}\\b",
+							description: "company credential",
+						},
+						{
+							name: "broken",
+							pattern: "[",
+							description: "ignored broken rule",
+						},
+					],
+				},
+			},
+		});
+		expect(settings.memory.security.customPatterns).toHaveLength(1);
+		expect(warnings.join(" ")).toMatch(
+			/memory\.security\.customPatterns\[1\]\.pattern.*invalid regular expression/i,
+		);
+	});
+
+	it("does not provide an allow or override escape hatch", () => {
+		const { settings, warnings } = parseSettings({
+			memory: {
+				security: {
+					customPatterns: [
+						{
+							name: "company-token",
+							pattern: "ACME_[A-Z]+",
+							description: "company credential",
+							action: "allow",
+						},
+					],
+				},
+			},
+		});
+		expect(settings.memory.security.customPatterns).toHaveLength(1);
+		expect(warnings.join(" ")).toMatch(/always block/i);
+	});
+
+	it("warns and ignores oversized custom pattern collections", () => {
+		const { settings, warnings } = parseSettings({
+			memory: {
+				security: {
+					customPatterns: Array.from({ length: 65 }, (_, index) => ({
+						name: `rule-${index}`,
+						pattern: "x".repeat(index === 0 ? 501 : 1),
+						description: "synthetic rule",
+					})),
+				},
+			},
+		});
+		expect(settings.memory.security.customPatterns).toHaveLength(63);
+		expect(warnings.join(" ")).toMatch(/more than 64 entries/i);
+		expect(warnings.join(" ")).toMatch(/longer than 500 characters/i);
+	});
+
+	it("rejects an empty custom pattern field", () => {
+		expect(() =>
+			parseSettings({
+				memory: {
+					security: {
+						customPatterns: [
+							{ name: "empty", pattern: "", description: "empty" },
+						],
+					},
+				},
+			}),
+		).toThrow(/customPatterns\[0\]\.pattern.*non-empty/i);
+	});
+
+	it("rejects an empty custom pattern description", () => {
+		expect(() =>
+			parseSettings({
+				memory: {
+					security: {
+						customPatterns: [
+							{ name: "unnamed", pattern: "ACME", description: "" },
+						],
+					},
+				},
+			}),
+		).toThrow(/customPatterns\[0\]\.description.*non-empty/i);
+	});
+
 	it("accepts a full document identical to the defaults", () => {
 		// Guards the round trip SETTINGS.md documents: the published example has
 		// to be a document this parser accepts.
