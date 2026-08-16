@@ -1,6 +1,6 @@
 {
 	"name": "pi-accumemory",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Long-term accumulative memory for pi coding agents: one database per project plus a shared one about you, persisted across sessions and projects",
 	"homepage": "https://github.com/m62624/pi-accumemory#readme",
 	"repository": {
