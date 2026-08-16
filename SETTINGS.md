@@ -554,10 +554,13 @@ client names) but never weaker.
 |---|---|
 | `/longterm-status` | which project this is, where the memory lives, what projects are registered |
 | `/longterm-inspect` | search, inspect, tag-filter, and batch-delete stored facts in a responsive terminal window |
+| `/longterm-consolidate` | run the background pass now instead of waiting for a quiet period |
 | `/longterm-new` | give this folder a memory of its own — see above |
 | `/longterm-rebind` | give this folder a memory that already exists — see below |
-| `/longterm-consolidate` | run the background pass now instead of waiting for a quiet period |
 | `/longterm-reembed` | rebuild every stored vector after an embedder change |
+
+The inspector waits for an active consolidation or review pass to finish before
+opening, so its list cannot change underneath a search or delete action.
 
 ## Moving your memory to another machine
 

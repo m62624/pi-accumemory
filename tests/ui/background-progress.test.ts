@@ -104,7 +104,7 @@ describe("createBackgroundProgress", () => {
 		);
 	});
 
-	it("blocks the inspector only during consolidation", async () => {
+	it("blocks the inspector during consolidation and review", async () => {
 		const notices: string[] = [];
 		let ran = false;
 		const task = () => {
@@ -120,6 +120,15 @@ describe("createBackgroundProgress", () => {
 		).resolves.toBeUndefined();
 		expect(ran).toBe(false);
 		expect(notices[0]).toMatch(/consolidation is running/i);
+		await expect(
+			runInspectorWhenAvailable(
+				"review",
+				(message) => notices.push(message),
+				task,
+			),
+		).resolves.toBeUndefined();
+		expect(ran).toBe(false);
+		expect(notices[1]).toMatch(/review is running/i);
 		await expect(
 			runInspectorWhenAvailable(undefined, () => {}, task),
 		).resolves.toBe("opened");

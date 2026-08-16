@@ -78,9 +78,9 @@ describe("the extension entry point", () => {
 		expect(commands).toEqual([
 			"longterm-status",
 			"longterm-inspect",
+			"longterm-consolidate",
 			"longterm-new",
 			"longterm-rebind",
-			"longterm-consolidate",
 			"longterm-reembed",
 		]);
 		await fire("session_shutdown", {

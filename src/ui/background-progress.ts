@@ -37,9 +37,10 @@ export async function runInspectorWhenAvailable<T>(
 	notify: (message: string, type?: "info" | "warning" | "error") => void,
 	task: () => Promise<T>,
 ): Promise<T | undefined> {
-	if (job === "consolidation") {
+	if (job !== undefined) {
+		const label = job === "review" ? "Memory review" : "Memory consolidation";
 		notify(
-			"Memory consolidation is running. Open the memory inspector after it finishes.",
+			`${label} is running. Open the memory inspector after it finishes.`,
 			"warning",
 		);
 		return undefined;

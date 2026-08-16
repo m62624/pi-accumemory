@@ -454,6 +454,38 @@ export default function accumemory(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerCommand("longterm-consolidate", {
+		description:
+			"Run the memory consolidation pass now, without waiting for a quiet period",
+		handler: async (_args, ctx) => {
+			await ready;
+			const runner = session?.consolidation;
+			if (runner === undefined) {
+				// The only way to get here now is having switched it off, so say
+				// that rather than the old sentence, which named no reason and
+				// was usually shown for one that was not true anyway.
+				ctx.ui.notify(
+					session === undefined
+						? (startupError ?? "Long-term memory is off.")
+						: 'The consolidation pass is switched off ("memory.consolidation.enabled": false in settings.json).',
+					"warning",
+				);
+				return;
+			}
+			idle.interrupt();
+			reviewTrigger?.interrupt();
+			backgroundProgress.cancel();
+			await backgroundQueue;
+			const progress = backgroundProgress.begin("consolidation");
+			try {
+				const outcome = await runner.runOnce();
+				progress.end(outcome.ran ? "completed" : "nothing");
+			} catch {
+				progress.end("failed");
+			}
+		},
+	});
+
 	/**
 	 * Closes the memory and opens it again, in place.
 	 *
@@ -636,38 +668,6 @@ export default function accumemory(pi: ExtensionAPI): void {
 					`The memory has been reopened - no restart needed.${aftermath}`,
 				"info",
 			);
-		},
-	});
-
-	pi.registerCommand("longterm-consolidate", {
-		description:
-			"Run the memory consolidation pass now, without waiting for a quiet period",
-		handler: async (_args, ctx) => {
-			await ready;
-			const runner = session?.consolidation;
-			if (runner === undefined) {
-				// The only way to get here now is having switched it off, so say
-				// that rather than the old sentence, which named no reason and
-				// was usually shown for one that was not true anyway.
-				ctx.ui.notify(
-					session === undefined
-						? (startupError ?? "Long-term memory is off.")
-						: 'The consolidation pass is switched off ("memory.consolidation.enabled": false in settings.json).',
-					"warning",
-				);
-				return;
-			}
-			idle.interrupt();
-			reviewTrigger?.interrupt();
-			backgroundProgress.cancel();
-			await backgroundQueue;
-			const progress = backgroundProgress.begin("consolidation");
-			try {
-				const outcome = await runner.runOnce();
-				progress.end(outcome.ran ? "completed" : "nothing");
-			} catch {
-				progress.end("failed");
-			}
 		},
 	});
 
