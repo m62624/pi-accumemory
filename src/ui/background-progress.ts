@@ -48,9 +48,9 @@ export function createBackgroundProgress(options: BackgroundProgressOptions): {
 	const setTimer = options.setTimer ?? ((fn, ms) => setInterval(fn, ms));
 	const clearTimer =
 		options.clearTimer ?? ((handle) => clearInterval(handle as never));
-	// One update per second keeps the footer spinner alive without turning a
-	// small indicator into a screen-wide repaint loop.
-	const intervalMs = options.intervalMs ?? 1_000;
+	// A sub-second update keeps the footer spinner visibly alive without turning
+	// a small indicator into a screen-wide repaint loop.
+	const intervalMs = options.intervalMs ?? 120;
 	let timer: unknown;
 	let active: { id: number; job: BackgroundJob; frame: number } | undefined;
 	let nextId = 0;
