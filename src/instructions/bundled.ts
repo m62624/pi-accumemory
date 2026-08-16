@@ -176,6 +176,17 @@ matter.
 \`longterm_remember\` refuses on its own to store something the memory already
 holds, so there is no need to search before writing.
 
+### Metadata is a pointer, not another fact
+
+Use optional \`metadata\` only for small side attributes such as a source URI,
+MIME type, import origin, or external id. It is stored and returned verbatim,
+but is not searched, ranked, or used for filtering. Put meaning in \`text\`,
+classification in \`tags\`, and relationships in \`entity\`/links. Never put a
+secret, a large body, or the searchable wording in metadata. \`longterm_revise\`
+preserves metadata when omitted and replaces it when a new map is supplied;
+use \`longterm_note_update\` for a note, because a note's metadata is its file
+pointer.
+
 ## How many facts per call
 
 - **\`longterm_remember\` and \`longterm_remember_many\`: one call, one fact in the

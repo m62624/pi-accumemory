@@ -88,17 +88,30 @@ A fact is one durable statement. It can have:
 
 - text;
 - an entity, such as `user`, `project:pi-accumemory`, or `note:n1`;
-- tags and opaque metadata;
+- tags for exact filtering;
+- opaque metadata for small side attributes such as a source URI, MIME type, or external id;
 - an optional embedding;
 - two time axes: when the statement was true and when the database learned it.
+
+Metadata is stored and returned verbatim, but it is not searched, ranked, or
+used as a tag filter. Put searchable meaning in `text`, classification in
+`tags`, and only a small pointer or integration attribute in `metadata`. The
+public `longterm_remember`, `longterm_remember_many`, and `longterm_revise`
+tools accept it. A revision preserves existing metadata when the field is
+omitted; passing a new map replaces it, and `{}` clears it. Metadata goes
+through the same local secret guard as fact text, so it is not a place for
+credentials or large payloads.
 
 When a fact changes, `revise` closes the old fact and stores a new one. That is
 why an old answer can still be recovered with an `as_of` query. `forget` marks
 a fact as no longer current; maintenance later reclaims its storage.
 
-Long material belongs in a note. A note body lives in a Markdown file and its
-small pointer fact lives in plugmem, so the model can find the note without
-putting the whole document into every recall result.
+Long material belongs in a note. A note body lives in its own Markdown file and
+its small pointer fact lives in plugmem, so the model can find the note without
+putting the whole document into every recall result. User notes are stored
+under `notes/common/`; project notes under `notes/projects/<projectId>/`. Use
+`longterm_note_update` to change a note. Do not revise its pointer with the
+generic fact tool: that pointer contains the metadata needed to find the file.
 
 ## How a question is answered
 

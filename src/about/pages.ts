@@ -62,12 +62,31 @@ One statement. Not a summary, not a paragraph, not a list. Each one carries:
 - **text** - the statement itself
 - **entity** - what it is about (a project, the user, a component)
 - **tags** - an open vocabulary; the memory tells you which tags it already uses
+- **metadata** - opaque small key/value side attributes, such as a source URI or
+  external id; it is returned but never searched
 - **time** - when it was recorded, and optionally from when until when it holds
 
 The entity is not decoration. Duplicate detection is scoped by it: the engine
 compares a new fact only against facts about the SAME entity. This extension
 always fills one in for you, which is why \`longterm_remember\` can tell you
 "this is already held" instead of quietly storing a seventh copy.
+
+Metadata is not a second text field. It is an opaque pointer for integrations:
+keep the statement that should be found in \`text\`, the exact classification in
+\`tags\`, and a URI, MIME type, or external id in \`metadata\`. It is not a
+retrieval source and never replaces the secret guard. On revision, omitted
+metadata is preserved; a supplied map replaces it.
+
+## Facts and notes
+
+Most memory entries are short facts. A note is for material that genuinely does
+not compress into one statement: an architecture overview, runbook, or a
+subsystem description. Each note has its own Markdown file and one short
+pointer fact in the selected memory. User notes live in \`notes/common/\`; project
+notes live in \`notes/projects/<projectId>/\`. The pointer's metadata contains
+the safe relative file reference. Use \`longterm_note_update\` and
+\`longterm_note_delete\` for notes; the generic fact tools do not edit or
+remove the Markdown body.
 
 ## Three ways a fact ends, and they are different
 

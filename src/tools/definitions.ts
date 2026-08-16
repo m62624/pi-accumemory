@@ -24,6 +24,7 @@ import type { MemoryController } from "../session/controller.ts";
 import { ABOUT_DESCRIPTION, ABOUT_TOPICS } from "./about.ts";
 import {
 	defined,
+	metadataOf,
 	num,
 	numArray,
 	optNum,
@@ -234,7 +235,9 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				"own to write something the memory already holds, and a local secret guard " +
 				"blocks credential-shaped text before it reaches permanent storage. If the " +
 				"guard refuses a call, do not retry the same text: use its redacted trigger " +
-				"line and store only where the credential lives.",
+				"line and store only where the credential lives. Optional metadata is for " +
+				"small non-searchable side attributes such as a source URI, mime type, or " +
+				"external id; keep the searchable meaning in text and never put secrets there.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -253,6 +256,13 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 							"The subject this is about, when it has a natural one. Leave blank " +
 							"for a general fact about the project.",
 					},
+					metadata: {
+						type: "object",
+						additionalProperties: { type: "string" },
+						description:
+							"Optional small key/value side attributes. Not searched or ranked; " +
+							"use text for meaning, tags for filtering, and never store secrets.",
+					},
 				},
 				required: ["text"],
 			},
@@ -263,6 +273,7 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 						scope: optScope(args.scope),
 						tags: strArray(args.tags),
 						entity: optStr(args.entity),
+						metadata: metadataOf(args.metadata),
 					}),
 				}),
 		},
@@ -277,7 +288,9 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				"its reason, or `error`. This is not all-or-nothing: earlier stored items " +
 				"remain if a later item fails. Never put several facts into one item's text. " +
 				"The same secret, scope, tag, entity, and duplicate rules apply as for " +
-				"longterm_remember.",
+				"longterm_remember. Metadata is optional per item and is only for small " +
+				"non-searchable side attributes such as source or external id; never put " +
+				"secrets there.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -290,6 +303,10 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 								scope: SCOPE_PARAM,
 								tags: { type: "array", items: { type: "string" } },
 								entity: { type: "string" },
+								metadata: {
+									type: "object",
+									additionalProperties: { type: "string" },
+								},
 							},
 							required: ["text"],
 						},
@@ -311,6 +328,7 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 										scope: optScope(record.scope),
 										tags: strArray(record.tags),
 										entity: optStr(record.entity),
+										metadata: metadataOf(record.metadata),
 									}),
 								};
 							})
@@ -326,7 +344,9 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				"deleted, so questions about what was true earlier still answer. Use " +
 				"longterm_forget instead when the fact was simply never true. REQUIRES " +
 				"scope: the two memories number their facts separately, so [f3] means " +
-				"nothing without saying which of them you read it in.",
+				"nothing without saying which of them you read it in. Optional metadata " +
+				"replaces the old side attributes; if omitted, they are preserved. Use " +
+				"longterm_note_update for a note pointer, never this tool.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -337,6 +357,13 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 					},
 					scope: ID_SCOPE_PARAM,
 					tags: { type: "array", items: { type: "string" } },
+					metadata: {
+						type: "object",
+						additionalProperties: { type: "string" },
+						description:
+							"Optional replacement metadata. Omit to preserve existing metadata; " +
+							"use an empty object to clear it.",
+					},
 				},
 				required: ["id", "text", "scope"],
 			},
@@ -346,6 +373,7 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 					str(args.text),
 					optScope(args.scope),
 					strArray(args.tags),
+					metadataOf(args.metadata),
 				),
 		},
 		{

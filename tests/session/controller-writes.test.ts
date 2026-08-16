@@ -109,6 +109,29 @@ describe("MemoryController.revise", () => {
 });
 
 describe("the secret write gate", () => {
+	it("checks metadata through the same write gate", async () => {
+		const seen: string[] = [];
+		const secretGuard = {
+			check: async (parts: readonly { label: string; text: string }[]) => {
+				seen.push(...parts.map((part) => `${part.label}:${part.text}`));
+				return {
+					blocked: parts.some((part) => part.text.includes("blocked-marker")),
+					message: "Not stored: the memory guard rejected the metadata.",
+				};
+			},
+		};
+		const { controller, project } = build({ secretGuard });
+
+		await expect(
+			controller.remember({
+				text: "a fact with side attributes",
+				metadata: { source: "blocked-marker" },
+			}),
+		).resolves.toMatch(/not stored/i);
+		expect(seen).toContain("metadata.source:source=blocked-marker");
+		expect(project?.facts).toHaveLength(0);
+	});
+
 	it("blocks before the memory engine receives the candidate", async () => {
 		const secretGuard = {
 			check: async () => ({

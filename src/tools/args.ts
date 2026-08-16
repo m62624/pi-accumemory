@@ -65,6 +65,28 @@ export function strArray(value: unknown): string[] | undefined {
 	return Array.isArray(value) ? value.map((item) => str(item)) : undefined;
 }
 
+/**
+ * Reads the public metadata shape defensively.
+ *
+ * Plugmem accepts only a string-to-string map. Models occasionally send a
+ * number or boolean for a side attribute, which is safe and useful to keep as
+ * its textual form; arrays, nested objects and nulls are not metadata values
+ * and are ignored rather than becoming `[object Object]`.
+ */
+export function metadataOf(value: unknown): Record<string, string> | undefined {
+	if (value === null || typeof value !== "object" || Array.isArray(value))
+		return undefined;
+	const sourceEntries = Object.entries(value as Record<string, unknown>);
+	if (sourceEntries.length === 0) return {};
+	const entries = sourceEntries.flatMap(([key, raw]) => {
+		if (typeof raw === "string") return [[key, raw] as const];
+		if (typeof raw === "number" || typeof raw === "boolean")
+			return [[key, String(raw)] as const];
+		return [];
+	});
+	return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
 /** The scope, defaulting to the safe one. See the note at the top. */
 export function scopeOf(value: unknown): Scope {
 	return optScope(value) ?? "project";

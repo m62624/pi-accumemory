@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	defined,
+	metadataOf,
 	num,
 	optNum,
 	optScope,
@@ -70,6 +71,27 @@ describe("strArray", () => {
 
 	it("keeps an empty array distinct from absence", () => {
 		expect(strArray([])).toEqual([]);
+	});
+});
+
+describe("metadataOf", () => {
+	it("keeps string values and normalizes scalar side attributes", () => {
+		expect(
+			metadataOf({ source: "catalog", version: 2, enabled: true }),
+		).toEqual({ source: "catalog", version: "2", enabled: "true" });
+	});
+
+	it("does not turn nested values into misleading strings", () => {
+		expect(
+			metadataOf({ source: "catalog", nested: { id: 1 }, list: ["x"] }),
+		).toEqual({ source: "catalog" });
+		expect(metadataOf({ nested: { id: 1 }, list: ["x"] })).toBeUndefined();
+		expect(metadataOf([])).toBeUndefined();
+	});
+
+	it("keeps an explicit empty map distinct from omission", () => {
+		expect(metadataOf({})).toEqual({});
+		expect(metadataOf(undefined)).toBeUndefined();
 	});
 });
 

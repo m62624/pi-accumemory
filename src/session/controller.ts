@@ -29,7 +29,7 @@ import {
 	type Neighbour,
 	type WriteReport,
 } from "../memory/write-report.ts";
-import type { NoteStore } from "../notes/store.ts";
+import { NOTE_TAG, type NoteStore } from "../notes/store.ts";
 import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import {
@@ -138,6 +138,8 @@ export interface RememberInputForModel {
 	scope?: Scope;
 	tags?: string[];
 	entity?: string;
+	/** Small, non-searchable side attributes such as a source URI or mime type. */
+	metadata?: Record<string, string>;
 }
 
 export type RememberAttemptStatus = "stored" | "blocked" | "error";
@@ -660,6 +662,7 @@ export class MemoryController {
 			{ label: "fact", text: input.text },
 			{ label: "entity", text: entity },
 			{ label: "tags", text: (input.tags ?? []).join(" ") },
+			...metadataParts(input.metadata),
 		]);
 		if (secretRefusal !== undefined)
 			return { status: "blocked", response: secretRefusal };
@@ -668,7 +671,7 @@ export class MemoryController {
 			stored = await memory.rememberGuarded({
 				text: input.text,
 				entity,
-				...defined({ tags: input.tags }),
+				...defined({ tags: input.tags, metadata: input.metadata }),
 			});
 		} catch (error) {
 			// Nothing was stored. Saying which is the whole point: a model told
@@ -834,6 +837,7 @@ export class MemoryController {
 		text: string,
 		scope: Scope | undefined,
 		tags?: string[],
+		metadata?: Record<string, string>,
 	): Promise<string> {
 		if (scope === undefined || scope === "both") {
 			await this.stumbled("id_without_scope");
@@ -844,17 +848,33 @@ export class MemoryController {
 		const secretRefusal = await this.secretRefusal([
 			{ label: "fact", text },
 			{ label: "tags", text: (tags ?? []).join(" ") },
+			...metadataParts(metadata),
 		]);
 		if (secretRefusal !== undefined) return secretRefusal;
 		const current = await memory.get(id);
 		if (current === null) return this.missing(id, scope, "revise");
+		if (current.tags.includes(NOTE_TAG)) {
+			return (
+				`Fact [f${id}] is a note pointer, not an ordinary fact. ` +
+				"Use longterm_note_update with its note_id so the Markdown body and " +
+				"its database pointer stay in sync."
+			);
+		}
 		// A standing rule can be made longer by a revision as easily as by a
 		// write, and the block it has to fit in is the same one.
 		if (isStandingRule(tags ?? current.tags)) {
 			const overflow = await this.wouldOverflowAlways(text, { id, scope });
 			if (overflow !== undefined) return overflow;
 		}
-		const stored = await memory.revise(id, { text, ...defined({ tags }) });
+		const stored = await memory.revise(id, {
+			text,
+			...defined({
+				tags,
+				// An omitted metadata field means "keep the old side attributes".
+				// An explicit empty object clears metadata; omission preserves it.
+				metadata: metadata ?? current.metadata,
+			}),
+		});
 		this.noteWrote();
 		this.record({
 			kind: "revise",
@@ -1305,6 +1325,16 @@ export class MemoryController {
 		}
 		return notes;
 	}
+}
+
+/** Makes metadata visible to the same secret gate as text, tags and entities. */
+function metadataParts(
+	metadata: Record<string, string> | undefined,
+): SecretWritePart[] {
+	return Object.entries(metadata ?? {}).map(([key, value]) => ({
+		label: `metadata.${key}`,
+		text: `${key}=${value}`,
+	}));
 }
 
 /**

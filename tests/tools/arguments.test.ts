@@ -73,6 +73,93 @@ describe("tool arguments", () => {
 		expect(project.live()[0]?.tags).toEqual(["1", "two"]);
 	});
 
+	it("passes string metadata through the public remember tool", async () => {
+		const { call, project } = build();
+		await call("longterm_remember", {
+			text: "the importer keeps its source pointer",
+			metadata: { source: "catalog", kind: "reference", version: 2 },
+		});
+		expect(project.live()[0]?.metadata).toEqual({
+			source: "catalog",
+			kind: "reference",
+			version: "2",
+		});
+	});
+
+	it("passes per-item metadata through remember_many", async () => {
+		const { call, project } = build();
+		await call("longterm_remember_many", {
+			facts: [
+				{
+					text: "the importer keeps its source pointer",
+					entity: "importer",
+					metadata: { source: "catalog" },
+				},
+				{
+					text: "the exporter has a stable external id",
+					entity: "exporter",
+					metadata: { externalId: "export-7" },
+				},
+			],
+		});
+		expect(project.live().map((fact) => fact.metadata)).toEqual([
+			{ source: "catalog" },
+			{ externalId: "export-7" },
+		]);
+	});
+
+	it("keeps metadata on revise unless a replacement map is supplied", async () => {
+		const { call, project } = build();
+		const stored = await call("longterm_remember", {
+			text: "the importer keeps its source pointer",
+			metadata: { source: "catalog", kind: "reference" },
+		});
+		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
+
+		await call("longterm_revise", {
+			id,
+			text: "the importer keeps its updated source pointer",
+			scope: "project",
+		});
+		expect(project.live()[0]?.metadata).toEqual({
+			source: "catalog",
+			kind: "reference",
+		});
+
+		const revised = project.live()[0]?.id;
+		await call("longterm_revise", {
+			id: revised,
+			text: "the importer keeps a new source pointer",
+			scope: "project",
+			metadata: {},
+		});
+		expect(project.live()[0]?.metadata).toEqual({});
+	});
+
+	it("does not let generic revise corrupt a note pointer", async () => {
+		const { call, fs } = build();
+		const created = await call("longterm_note_create", {
+			title: "Architecture",
+			content: "The body remains in its own file.",
+		});
+		const noteId = /note (\S+) /.exec(created)?.[1] ?? "";
+		const pointer = await call("longterm_ask", {
+			question: "Architecture",
+		});
+		const factId = Number(/\[f(\d+)\]/.exec(pointer)?.[1]);
+
+		await expect(
+			call("longterm_revise", {
+				id: factId,
+				text: "a replacement that must not touch the note",
+				scope: "project",
+			}),
+		).resolves.toMatch(/longterm_note_update/i);
+		expect(fs.files.get(`/p/${noteId}.md`)).toBe(
+			"The body remains in its own file.",
+		);
+	});
+
 	it("ignores a non-numeric k or graph depth", async () => {
 		const { call } = build();
 		await expect(
