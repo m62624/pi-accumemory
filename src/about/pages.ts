@@ -75,7 +75,8 @@ Metadata is not a second text field. It is an opaque pointer for integrations:
 keep the statement that should be found in \`text\`, the exact classification in
 \`tags\`, and a URI, MIME type, or external id in \`metadata\`. It is not a
 retrieval source and never replaces the secret guard. On revision, omitted
-metadata is preserved; a supplied map replaces it.
+entity, tags, and metadata are preserved; supplied values replace them, and an
+empty array/map clears tags/metadata.
 
 ## Facts and notes
 

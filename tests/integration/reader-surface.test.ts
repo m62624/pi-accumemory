@@ -61,7 +61,9 @@ describe("PlugmemReader", () => {
 		expect((await reader.listTags()).items.length).toBeGreaterThan(0);
 		expect((await reader.stats()).facts).toBeGreaterThan(0);
 		expect((await reader.get(factId))?.text).toContain("warmup");
-		expect(await reader.scan({ tags: ["gotcha"] })).toHaveLength(1);
+		const scanned = await reader.scan({ tags: ["gotcha"] });
+		expect(scanned).toHaveLength(1);
+		expect(scanned[0]?.entity).toBe("project:x");
 		expect(reader.generation()).toBeGreaterThan(0);
 	});
 

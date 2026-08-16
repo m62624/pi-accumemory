@@ -838,6 +838,7 @@ export class MemoryController {
 		scope: Scope | undefined,
 		tags?: string[],
 		metadata?: Record<string, string>,
+		entity?: string,
 	): Promise<string> {
 		if (scope === undefined || scope === "both") {
 			await this.stumbled("id_without_scope");
@@ -860,6 +861,8 @@ export class MemoryController {
 				"its database pointer stay in sync."
 			);
 		}
+		const currentScan = await memory.scan({ from: id, limit: 1 });
+		const currentEntity = currentScan.find((fact) => fact.id === id)?.entity;
 		// A standing rule can be made longer by a revision as easily as by a
 		// write, and the block it has to fit in is the same one.
 		if (isStandingRule(tags ?? current.tags)) {
@@ -869,7 +872,8 @@ export class MemoryController {
 		const stored = await memory.revise(id, {
 			text,
 			...defined({
-				tags,
+				entity: entity ?? currentEntity,
+				tags: tags ?? current.tags,
 				// An omitted metadata field means "keep the old side attributes".
 				// An explicit empty object clears metadata; omission preserves it.
 				metadata: metadata ?? current.metadata,

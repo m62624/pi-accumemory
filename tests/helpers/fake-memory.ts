@@ -258,6 +258,7 @@ export class FakeMemory implements WritableMemory {
 			.map((fact) => ({
 				id: fact.id,
 				text: fact.text,
+				...(fact.entity === undefined ? {} : { entity: fact.entity }),
 				tags: fact.tags,
 				metadata: fact.metadata,
 			}));

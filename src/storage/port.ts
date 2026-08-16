@@ -166,6 +166,8 @@ export interface EdgeRef {
 export interface ScannedFact {
 	id: number;
 	text: string;
+	/** Subject entity, when the fact has one. */
+	entity?: string;
 	tags: string[];
 	metadata: Record<string, string>;
 }

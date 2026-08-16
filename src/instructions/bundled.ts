@@ -183,8 +183,9 @@ MIME type, import origin, or external id. It is stored and returned verbatim,
 but is not searched, ranked, or used for filtering. Put meaning in \`text\`,
 classification in \`tags\`, and relationships in \`entity\`/links. Never put a
 secret, a large body, or the searchable wording in metadata. \`longterm_revise\`
-preserves metadata when omitted and replaces it when a new map is supplied;
-use \`longterm_note_update\` for a note, because a note's metadata is its file
+preserves entity, tags, and metadata when they are omitted; supplied values
+replace them, and \`[]\`/\`{}\` explicitly clear tags/metadata. Use
+\`longterm_note_update\` for a note, because a note's metadata is its file
 pointer.
 
 ## How many facts per call

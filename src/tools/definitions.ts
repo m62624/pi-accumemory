@@ -345,8 +345,9 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 				"longterm_forget instead when the fact was simply never true. REQUIRES " +
 				"scope: the two memories number their facts separately, so [f3] means " +
 				"nothing without saying which of them you read it in. Optional metadata " +
-				"replaces the old side attributes; if omitted, they are preserved. Use " +
-				"longterm_note_update for a note pointer, never this tool.",
+				"replaces the old side attributes; if omitted, entity, tags and metadata " +
+				"are preserved. Pass a new entity or tags array to replace them; use [] or " +
+				"{} to clear them. Use longterm_note_update for a note pointer, never this tool.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -356,6 +357,11 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 						description: "The statement that replaces it.",
 					},
 					scope: ID_SCOPE_PARAM,
+					entity: {
+						type: "string",
+						description:
+							"Optional replacement subject. Omit to preserve the current entity.",
+					},
 					tags: { type: "array", items: { type: "string" } },
 					metadata: {
 						type: "object",
@@ -374,6 +380,7 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 					optScope(args.scope),
 					strArray(args.tags),
 					metadataOf(args.metadata),
+					optStr(args.entity),
 				),
 		},
 		{

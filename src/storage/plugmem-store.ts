@@ -384,6 +384,7 @@ async function scanVia(
 			found.push({
 				id: fact.id,
 				text: fact.text,
+				...(fact.entity === undefined ? {} : { entity: fact.entity }),
 				tags: fact.tags,
 				metadata: fact.metadata,
 			});

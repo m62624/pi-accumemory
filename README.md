@@ -98,9 +98,10 @@ used as a tag filter. Put searchable meaning in `text`, classification in
 `tags`, and only a small pointer or integration attribute in `metadata`. The
 public `longterm_remember`, `longterm_remember_many`, and `longterm_revise`
 tools accept it. A revision preserves existing metadata when the field is
-omitted; passing a new map replaces it, and `{}` clears it. Metadata goes
-through the same local secret guard as fact text, so it is not a place for
-credentials or large payloads.
+omitted; passing a new map replaces it, and `{}` clears it. The same patch
+rule applies to `entity` and `tags`: omission preserves them, while a new value
+replaces them and `[]` clears tags. Metadata goes through the same local secret
+guard as fact text, so it is not a place for credentials or large payloads.
 
 When a fact changes, `revise` closes the old fact and stores a new one. That is
 why an old answer can still be recovered with an `as_of` query. `forget` marks

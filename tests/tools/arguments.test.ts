@@ -112,6 +112,8 @@ describe("tool arguments", () => {
 		const { call, project } = build();
 		const stored = await call("longterm_remember", {
 			text: "the importer keeps its source pointer",
+			entity: "importer",
+			tags: ["source"],
 			metadata: { source: "catalog", kind: "reference" },
 		});
 		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
@@ -125,15 +127,21 @@ describe("tool arguments", () => {
 			source: "catalog",
 			kind: "reference",
 		});
+		expect(project.live()[0]?.entity).toBe("importer");
+		expect(project.live()[0]?.tags).toEqual(["source"]);
 
 		const revised = project.live()[0]?.id;
 		await call("longterm_revise", {
 			id: revised,
 			text: "the importer keeps a new source pointer",
 			scope: "project",
+			entity: "source-registry",
+			tags: [],
 			metadata: {},
 		});
 		expect(project.live()[0]?.metadata).toEqual({});
+		expect(project.live()[0]?.entity).toBe("source-registry");
+		expect(project.live()[0]?.tags).toEqual([]);
 	});
 
 	it("does not let generic revise corrupt a note pointer", async () => {
