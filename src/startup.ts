@@ -16,6 +16,7 @@ import { CursorStore } from "./consolidation/cursor-store.ts";
 import { piPassAgent } from "./consolidation/pi-agent.ts";
 import { ReviewCursorStore } from "./consolidation/review-cursor.ts";
 import { ConsolidationRunner } from "./consolidation/runner.ts";
+import { SizePressureRunner } from "./consolidation/size-pressure.ts";
 import { readTranscriptTail } from "./consolidation/transcript.ts";
 import type { FileOps } from "./fs-ops.ts";
 import { BUNDLED_INSTRUCTIONS } from "./instructions/bundled.ts";
@@ -50,6 +51,8 @@ import {
 	PlugmemStore,
 } from "./storage/plugmem-store.ts";
 import type { EmbedderState } from "./storage/port.ts";
+import type { SizeScope, SizeSnapshot } from "./storage/size-limits.ts";
+import { SizeLimitedMemory } from "./storage/size-limits.ts";
 import { defined } from "./tools/args.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import type { RebindCandidate } from "./ui/rebind-picker.ts";
@@ -137,6 +140,12 @@ export interface StartedSession {
 	consolidation?: ConsolidationRunner;
 	/** The independent pass over old stored facts. */
 	review?: ConsolidationRunner;
+	/** The bounded automatic pass used when a memory approaches its byte limit. */
+	sizePressure?: SizePressureRunner;
+	/** Latest measured size for one open memory. */
+	sizeSnapshot(scope: SizeScope): SizeSnapshot | undefined;
+	/** Thresholds reached since the last background pressure pass was scheduled. */
+	takeSizePressureScopes(): SizeScope[];
 	/** `0` when transcript consolidation is off. */
 	consolidationQuietMs: number;
 	/** `0` when automatic review is off. */
@@ -230,7 +239,7 @@ export async function startSession(
 	// resolved without it.
 	const commonReader = await openReadable(dbPath(COMMON_DB), openOptions);
 	closers.push(() => commonReader.close());
-	const common = new CommonStore(commonReader, async () => {
+	const commonStore = new CommonStore(commonReader, async () => {
 		const writer = await PlugmemStore.open(dbPath(COMMON_DB), openOptions);
 		return writer as unknown as LeasedWriter;
 	});
@@ -247,7 +256,7 @@ export async function startSession(
 	const embedderPresent = commonReader.embedderState() !== "absent";
 	const syncOptions = { autoReembed: settings.memory.autoReembed };
 	if (embedderPresent) {
-		await common.withWriteLease(async (writer) => {
+		await commonStore.withWriteLease(async (writer) => {
 			const result = await syncVectorSpace(writer as unknown as PlugmemStore, {
 				...syncOptions,
 				label: "the shared memory about you",
@@ -255,6 +264,23 @@ export async function startSession(
 			if (result.notice !== "") notices.push(result.notice);
 		});
 	}
+	let sizeSnapshots: Partial<Record<SizeScope, SizeSnapshot>> = {};
+	const pendingSizePressure = new Set<SizeScope>();
+	const rememberSize = (snapshot: SizeSnapshot): void => {
+		sizeSnapshots = { ...sizeSnapshots, [snapshot.scope]: snapshot };
+		if (snapshot.state === "pressure" || snapshot.state === "over-limit") {
+			pendingSizePressure.add(snapshot.scope);
+		}
+	};
+	const common = new SizeLimitedMemory({
+		scope: "user",
+		inner: commonStore,
+		settings: settings.memory.sizeLimits,
+		fs,
+		pathModule,
+		dbPath: dbPath(COMMON_DB),
+		onSize: rememberSize,
+	});
 
 	const router = new ProjectRouter(common);
 	// The folder's real path, which is what a memory is bound to. Resolved once
@@ -277,7 +303,7 @@ export async function startSession(
 
 	let projectId: string | undefined;
 	let projectWriter: PlugmemStore | undefined;
-	let project: CheckpointingStore | undefined;
+	let project: SizeLimitedMemory | undefined;
 	if (projectRoot !== undefined) {
 		const resolved = await router.resolve(
 			toStoredPath(projectRoot, pathModule),
@@ -292,7 +318,16 @@ export async function startSession(
 			// Every write publishes. A project database that is written but
 			// never checkpointed cannot be opened read-only from anywhere -
 			// which is precisely what a cross-project question does.
-			project = new CheckpointingStore(projectWriter);
+			const projectStore = new CheckpointingStore(projectWriter);
+			project = new SizeLimitedMemory({
+				scope: "project",
+				inner: projectStore,
+				settings: settings.memory.sizeLimits,
+				fs,
+				pathModule,
+				dbPath: dbPath(projectDbName(projectId)),
+				onSize: rememberSize,
+			});
 			await projectWriter.checkpoint();
 			if (embedderPresent) {
 				const result = await syncVectorSpace(projectWriter, {
@@ -510,6 +545,35 @@ export async function startSession(
 						...(cursor === undefined ? {} : { cursor }),
 					}),
 			});
+	const sizePressure = new SizePressureRunner({
+		settings: settings.memory.consolidation,
+		limits: settings.memory.sizeLimits,
+		controller,
+		memories: { user: common, ...(project === undefined ? {} : { project }) },
+		instructions,
+		agent: piPassAgent({
+			cwd,
+			agentDir: options.agentDir,
+			tools: longtermTools(controller).filter((tool) =>
+				[
+					"longterm_ask",
+					"longterm_ask_project",
+					"longterm_tags",
+					"longterm_forget",
+					"longterm_forget_many",
+				].includes(tool.name),
+			),
+		}),
+		scopeLabel: (scope) =>
+			scope === "user"
+				? "your memory about the user"
+				: projectRoot === undefined
+					? "this directory"
+					: `this project (${basename(projectRoot)})`,
+		clock: () => clockLine(new Date(), settings.timezone),
+	});
+	await rememberSize(await common.snapshot());
+	if (project !== undefined) await rememberSize(await project.snapshot());
 
 	/**
 	 * How many live facts a memory holds, or `undefined` when it will not open.
@@ -556,6 +620,13 @@ export async function startSession(
 		...(consolidation === undefined
 			? {}
 			: { consolidation, review: consolidation }),
+		sizePressure,
+		sizeSnapshot: (scope) => sizeSnapshots[scope],
+		takeSizePressureScopes: () => {
+			const scopes = [...pendingSizePressure];
+			pendingSizePressure.clear();
+			return scopes;
+		},
 		consolidationQuietMs:
 			consolidation === undefined ? 0 : settings.memory.consolidation.quietMs,
 		reviewIntervalMs:
@@ -609,7 +680,7 @@ export async function startSession(
 						// and then refreshes our read-only handle. Skipping that
 						// leaves this session reading the pre-rebuild snapshot -
 						// old vectors, new embedder, mismatch on the next question.
-						await common.withWriteLease((writer) =>
+						await commonStore.withWriteLease((writer) =>
 							(writer as unknown as PlugmemStore).reembed(),
 						);
 					} else if (name === ownName && projectWriter !== undefined) {

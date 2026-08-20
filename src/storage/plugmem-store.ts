@@ -19,6 +19,7 @@ import type {
 	EmbedderState,
 	FactCard,
 	GuardedRememberResult,
+	MaintainMode,
 	MemoryStats,
 	ReadableMemory,
 	RecallInput,
@@ -161,8 +162,8 @@ export class PlugmemStore implements WritableMemory {
 		await this.db.checkpoint();
 	}
 
-	async maintain(): Promise<void> {
-		await this.db.maintain("auto");
+	async maintain(mode: MaintainMode = "auto"): Promise<void> {
+		await this.db.maintain(mode);
 	}
 
 	/**

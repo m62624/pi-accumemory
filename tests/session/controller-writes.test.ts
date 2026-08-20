@@ -108,6 +108,44 @@ describe("MemoryController.revise", () => {
 	});
 });
 
+describe("automatic size-pressure deletion", () => {
+	it("does not delete protected facts and filters them from candidates", async () => {
+		const { controller, project } = build();
+		await project?.remember({
+			text: "Keep this policy fact.",
+			tags: ["protected"],
+		});
+		await project?.remember({
+			text: "This temporary detail can expire.",
+			tags: ["temporary"],
+		});
+
+		expect(await controller.sizeCandidates("project", 10)).toEqual([
+			expect.objectContaining({ id: 1, tags: ["temporary"] }),
+		]);
+		const response = await controller.withAutomaticDeleteProtection(() =>
+			controller.forget([0], "project"),
+		);
+		expect(response).toMatch(/protected.*#protected/i);
+		expect(await project?.get(0)).not.toBeNull();
+	});
+
+	it("does not let the automatic pass delete outside its candidate window", async () => {
+		const { controller, project } = build();
+		await project?.remember({ text: "An older detail." });
+		await project?.remember({ text: "A newer detail." });
+
+		const response = await controller.withAutomaticDeleteProtection(
+			() => controller.forget([1], "project"),
+			[0],
+		);
+		expect(response).toMatch(
+			/outside the bounded automatic cleanup candidate list/i,
+		);
+		expect(await project?.get(1)).not.toBeNull();
+	});
+});
+
 describe("the secret write gate", () => {
 	it("checks metadata through the same write gate", async () => {
 		const seen: string[] = [];

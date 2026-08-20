@@ -36,6 +36,7 @@ import { unfixableNotice } from "./session/stumbles.ts";
 import { parseSettings } from "./settings/schema.ts";
 import { type StartedSession, startSession } from "./startup.ts";
 import type { EmbedderState } from "./storage/port.ts";
+import type { SizeScope } from "./storage/size-limits.ts";
 import { longtermTools } from "./tools/definitions.ts";
 import { lazyController, MEMORY_UNAVAILABLE } from "./tools/lazy.ts";
 import {
@@ -69,6 +70,8 @@ export default function accumemory(pi: ExtensionAPI): void {
 	let noticesShown = false;
 	let mainAgentRunning = false;
 	let reviewTrigger: PeriodicTrigger | undefined;
+	let sizePressureAbort: AbortController | undefined;
+	const shownSizeStates = new Map<SizeScope, string>();
 	let backgroundQueue = Promise.resolve();
 	let ui: ExtensionUIContext | undefined;
 	const backgroundProgress = createBackgroundProgress({
@@ -129,6 +132,36 @@ export default function accumemory(pi: ExtensionAPI): void {
 		});
 		backgroundQueue = next.catch(() => {});
 		return next;
+	};
+
+	const notifySizeStates = (current: StartedSession | undefined): void => {
+		if (current === undefined || ui === undefined) return;
+		for (const scope of ["user", "project"] as const) {
+			const snapshot = current.sizeSnapshot(scope);
+			if (snapshot === undefined) continue;
+			const state = snapshot.state;
+			if (
+				state !== "warning" &&
+				state !== "pressure" &&
+				state !== "over-limit"
+			) {
+				shownSizeStates.delete(scope);
+				continue;
+			}
+			if (shownSizeStates.get(scope) === state) continue;
+			shownSizeStates.set(scope, state);
+			const label = scope === "user" ? "User memory" : "Project memory";
+			ui.notify(
+				`${label} is at ${formatBytes(snapshot.footprint.activeBytes)} of ` +
+					`${formatBytes(snapshot.limitBytes)} (${Math.round(snapshot.ratio * 100)}%). ` +
+					(state === "warning"
+						? "A size review will be scheduled if it grows further."
+						: state === "pressure"
+							? "Safe memory consolidation is scheduled."
+							: "New memory growth is blocked until safe space is reclaimed."),
+				state === "over-limit" ? "warning" : "info",
+			);
+		}
 	};
 
 	// -- tools ---------------------------------------------------------------
@@ -208,6 +241,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		ui = ctx.ui;
 		await ready;
+		notifySizeStates(session);
 		reviewTrigger?.start();
 		if (noticesShown) return;
 		noticesShown = true;
@@ -224,6 +258,8 @@ export default function accumemory(pi: ExtensionAPI): void {
 		mainAgentRunning = true;
 		session?.controller.noteUserMessage();
 		reviewTrigger?.interrupt();
+		sizePressureAbort?.abort();
+		sizePressureAbort = undefined;
 		backgroundProgress.interrupt();
 	});
 
@@ -246,6 +282,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", () => {
 		idle?.cancel();
 		reviewTrigger?.cancel();
+		sizePressureAbort?.abort();
 		backgroundProgress.cancel();
 		session?.close();
 		session = undefined;
@@ -292,6 +329,44 @@ export default function accumemory(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", () => idle.interrupt());
 	pi.on("agent_settled", () => {
 		mainAgentRunning = false;
+		const current = session;
+		const scopes = current?.takeSizePressureScopes() ?? [];
+		if (current?.sizePressure !== undefined && scopes.length > 0) {
+			const abort = new AbortController();
+			sizePressureAbort = abort;
+			void enqueueBackground(abort.signal, async () => {
+				const progress = backgroundProgress.begin("size-consolidation");
+				current.controller.noteBackgroundPassStart();
+				try {
+					for (const scope of scopes) {
+						if (abort.signal.aborted) break;
+						const outcome = await current.sizePressure?.run(
+							scope,
+							abort.signal,
+						);
+						if (
+							outcome !== undefined &&
+							(outcome.reason === "no-candidates" ||
+								outcome.reason === "no-progress" ||
+								outcome.reason === "max-passes") &&
+							outcome.after.state === "over-limit"
+						) {
+							ui?.notify(
+								`${scope} memory is over its byte limit. No safe automatic deletion was found; ` +
+									"new memory growth is blocked until space is freed or the limit is increased.",
+								"warning",
+							);
+						}
+					}
+					progress.end(abort.signal.aborted ? "interrupted" : "completed");
+				} catch {
+					progress.end(abort.signal.aborted ? "interrupted" : "failed");
+				} finally {
+					if (sizePressureAbort === abort) sizePressureAbort = undefined;
+				}
+			});
+		}
+		notifySizeStates(current);
 		idle.schedule();
 	});
 
@@ -345,6 +420,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 				// stopped answering mid-session is exactly what somebody runs
 				// this command to find out about.
 				`Embedder: ${embedderLine(session.embedderState())}`,
+				...sizeStatusLines(session),
 				await session.controller.projects(),
 				...session.warnings,
 				...session.notices,
@@ -477,6 +553,8 @@ export default function accumemory(pi: ExtensionAPI): void {
 			}
 			idle.interrupt();
 			reviewTrigger?.interrupt();
+			sizePressureAbort?.abort();
+			sizePressureAbort = undefined;
 			backgroundProgress.cancel();
 			await backgroundQueue;
 			const progress = backgroundProgress.begin("consolidation");
@@ -503,6 +581,8 @@ export default function accumemory(pi: ExtensionAPI): void {
 	}): Promise<boolean> => {
 		idle.interrupt();
 		reviewTrigger?.interrupt();
+		sizePressureAbort?.abort();
+		sizePressureAbort = undefined;
 		backgroundProgress.cancel();
 		session?.close();
 		session = undefined;
@@ -751,6 +831,36 @@ function embedderLine(state: EmbedderState): string {
 		case "suspended":
 			return "not answering right now, so new facts are stored without vectors; it retries by itself, and /longterm-reembed fills them in";
 	}
+}
+
+function sizeStatusLines(session: StartedSession): string[] {
+	const lines: string[] = [];
+	for (const scope of ["user", "project"] as const) {
+		const snapshot = session.sizeSnapshot(scope);
+		if (snapshot === undefined) continue;
+		lines.push(
+			`${scope === "user" ? "User" : "Project"} memory size: ` +
+				(snapshot.limitBytes === 0
+					? `${formatBytes(snapshot.footprint.activeBytes)} (limit disabled)`
+					: `${formatBytes(snapshot.footprint.activeBytes)} / ${formatBytes(snapshot.limitBytes)} ` +
+						`(${Math.round(snapshot.ratio * 100)}%, ${snapshot.state})`),
+			`  Storage overhead: ${formatBytes(snapshot.footprint.overheadBytes)} ` +
+				`(old generations and temporary files)`,
+		);
+	}
+	return lines;
+}
+
+function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	const units = ["KiB", "MiB", "GiB", "TiB"];
+	let value = bytes;
+	let unit = -1;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit += 1;
+	}
+	return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
 /** Re-exported so a consumer can drive the pieces without the extension shell. */

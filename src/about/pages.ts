@@ -474,6 +474,13 @@ in the \`/resume\` picker or enter the main conversation. While it runs, the
 terminal shows lifecycle notifications and one animated status line;
 the memory changes themselves are saved normally.
 
+**Size pressure is separate.** It measures the active database files, warns at
+80%, and queues a bounded cleanup at 90%. That cleanup may remove only clearly
+redundant, obsolete, temporary or low-value facts; instruction and protected-tag
+facts are excluded. At 100%, new growth is blocked if the passes cannot find a
+safe candidate. Existing memory remains readable, and manual forgetting or a
+larger limit can recover it.
+
 Before any fact, revision, or note is persisted, a local secret scanner checks
 the candidate. High-confidence credential findings are blocked and the model
 gets a safe redacted trigger line explaining why. Ordinary identifiers, hashes
@@ -570,6 +577,13 @@ new-transcript pass starts, \`maxSteps\` and \`maxNudges\` as its budget,
 \`review.sampleSize\` for the independent old-fact review, \`habits.enabled\`
 and \`habits.afterSessions\` for repeated model mistakes, and \`maintain\` for
 reclaiming disk at the end.
+
+**\`memory.sizeLimits\`** - separate active-byte limits for shared user memory
+and the current project. It warns at \`warningRatio\`, starts bounded safe
+cleanup at \`consolidationRatio\`, and stops after \`maxPasses\`. Its
+\`protectedTags\` are never selected for automatic deletion. A full memory is
+still readable; only further growth is refused until space is freed or the
+limit is raised.
 
 **\`memory.crossProject.enabled\`** - whether another project's memory may be
 read from here at all.

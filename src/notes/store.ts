@@ -24,7 +24,7 @@ import {
 	defaultSecretGuard,
 	type SecretGuard,
 } from "../security/secret-guard.ts";
-import type { WritableMemory } from "../storage/port.ts";
+import type { RememberResult, WritableMemory } from "../storage/port.ts";
 
 /** A note id is a bare identifier - nothing that can act as a path. */
 const NOTE_ID = /^[A-Za-z0-9_-]+$/;
@@ -109,21 +109,27 @@ export class NoteStore {
 		const noteId = this.newId();
 		assertNoteId(noteId);
 		await this.fs.mkdir(this.dir);
-		await this.fs.writeFile(this.nativePath(noteId), content);
-
-		const stored = await this.memory.remember({
-			text: `Note "${title}"`,
-			// One entity per note: the duplicate detector compares a fact
-			// against its entity's recent history, so notes sharing an entity
-			// would each look like a duplicate of the last one written.
-			entity: noteEntity(noteId),
-			tags: [NOTE_TAG],
-			metadata: {
-				[NOTE_ID_KEY]: noteId,
-				[NOTE_TITLE_KEY]: title,
-				[NOTE_PATH_KEY]: storedPointer(noteId),
-			},
-		});
+		const file = this.nativePath(noteId);
+		await this.fs.writeFile(file, content);
+		let stored: RememberResult;
+		try {
+			stored = await this.memory.remember({
+				text: `Note "${title}"`,
+				// One entity per note: the duplicate detector compares a fact
+				// against its entity's recent history, so notes sharing an entity
+				// would each look like a duplicate of the last one written.
+				entity: noteEntity(noteId),
+				tags: [NOTE_TAG],
+				metadata: {
+					[NOTE_ID_KEY]: noteId,
+					[NOTE_TITLE_KEY]: title,
+					[NOTE_PATH_KEY]: storedPointer(noteId),
+				},
+			});
+		} catch (error) {
+			await this.fs.remove(file);
+			throw error;
+		}
 		return { noteId, title, factId: stored.id };
 	}
 
@@ -165,20 +171,28 @@ export class NoteStore {
 			{ label: "note title", text: newTitle },
 			{ label: "note body", text: content },
 		]);
-		await this.fs.writeFile(this.nativePath(noteId), content);
+		const file = this.nativePath(noteId);
+		const previous = await this.fs.readFile(file);
+		await this.fs.writeFile(file, content);
 
 		// `revise`, not a second `remember`: two pointers to one body would
 		// diverge, and forgetting one would leave the other lying.
-		const stored = await this.memory.revise(pointer.factId, {
-			text: `Note "${newTitle}"`,
-			entity: noteEntity(noteId),
-			tags: [NOTE_TAG],
-			metadata: {
-				[NOTE_ID_KEY]: noteId,
-				[NOTE_TITLE_KEY]: newTitle,
-				[NOTE_PATH_KEY]: storedPointer(noteId),
-			},
-		});
+		let stored: RememberResult;
+		try {
+			stored = await this.memory.revise(pointer.factId, {
+				text: `Note "${newTitle}"`,
+				entity: noteEntity(noteId),
+				tags: [NOTE_TAG],
+				metadata: {
+					[NOTE_ID_KEY]: noteId,
+					[NOTE_TITLE_KEY]: newTitle,
+					[NOTE_PATH_KEY]: storedPointer(noteId),
+				},
+			});
+		} catch (error) {
+			if (previous !== undefined) await this.fs.writeFile(file, previous);
+			throw error;
+		}
 		return { noteId, title: newTitle, factId: stored.id };
 	}
 

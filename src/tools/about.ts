@@ -128,7 +128,7 @@ export class AboutDesk {
 	 */
 	private currentSettings(): string {
 		const { memory, timezone } = this.deps.settings;
-		const { consolidation, refresh, nudge, inspect } = memory;
+		const { consolidation, refresh, nudge, inspect, sizeLimits } = memory;
 		const { paths } = this.deps;
 		const lines = [
 			"# What this session is running with",
@@ -159,6 +159,12 @@ export class AboutDesk {
 			`- notes.overviewMaxChars: ${memory.notes.overviewMaxChars}`,
 			`- inspect.pageSize: ${inspect.pageSize}`,
 			`- security.customPatterns: ${memory.security.customPatterns.length} additional blocking rules`,
+			`- sizeLimits.userBytes: ${sizeLimits.userBytes}`,
+			`- sizeLimits.projectBytes: ${sizeLimits.projectBytes}`,
+			`- sizeLimits.warningRatio: ${sizeLimits.warningRatio}`,
+			`- sizeLimits.consolidationRatio: ${sizeLimits.consolidationRatio}`,
+			`- sizeLimits.maxPasses: ${sizeLimits.maxPasses}`,
+			`- sizeLimits.protectedTags: ${sizeLimits.protectedTags.join(", ") || "none"}`,
 			`- timezone: ${timezone ?? "the machine's own"}`,
 			"",
 			"## Which folder gets its own memory",
