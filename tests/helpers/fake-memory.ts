@@ -328,7 +328,7 @@ export class FakeMemory implements WritableMemory {
 	}
 
 	/** Purges tombstones, exactly as a real maintenance pass does. */
-	async maintain(): Promise<void> {
+	async maintain(_mode: "auto" | "compact" | "full" = "auto"): Promise<void> {
 		this.throwIfArmed();
 		this.maintains += 1;
 		for (let i = this.facts.length - 1; i >= 0; i -= 1) {

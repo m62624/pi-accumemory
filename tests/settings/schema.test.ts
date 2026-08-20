@@ -64,6 +64,39 @@ describe("parseSettings", () => {
 		).toThrow(/afterMessages/);
 	});
 
+	it("validates size thresholds and their ordering", () => {
+		const { settings } = parseSettings({
+			memory: {
+				sizeLimits: {
+					userBytes: 4096,
+					projectBytes: 2048,
+					warningRatio: 0.7,
+					consolidationRatio: 0.85,
+					maxPasses: 3,
+					protectedTags: ["policy"],
+				},
+			},
+		});
+		expect(settings.memory.sizeLimits).toMatchObject({
+			userBytes: 4096,
+			projectBytes: 2048,
+			warningRatio: 0.7,
+			consolidationRatio: 0.85,
+			maxPasses: 3,
+			protectedTags: ["policy"],
+		});
+		expect(() =>
+			parseSettings({
+				memory: {
+					sizeLimits: {
+						warningRatio: 0.9,
+						consolidationRatio: 0.8,
+					},
+				},
+			}),
+		).toThrow(/warningRatio.*less than.*consolidationRatio/i);
+	});
+
 	it("accepts null where the schema allows it", () => {
 		const { settings } = parseSettings({ memory: { graphDepth: null } });
 		expect(settings.memory.graphDepth).toBeNull();

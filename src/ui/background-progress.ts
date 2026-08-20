@@ -7,7 +7,7 @@
  * tests and in non-interactive callers.
  */
 
-export type BackgroundJob = "consolidation" | "review";
+export type BackgroundJob = "consolidation" | "review" | "size-consolidation";
 export type BackgroundResult =
 	| "completed"
 	| "nothing"
@@ -38,7 +38,7 @@ export async function runInspectorWhenAvailable<T>(
 	task: () => Promise<T>,
 ): Promise<T | undefined> {
 	if (job !== undefined) {
-		const label = job === "review" ? "Memory review" : "Memory consolidation";
+		const label = LABELS[job];
 		notify(
 			`${label} is running. Open the memory inspector after it finishes.`,
 			"warning",
@@ -54,6 +54,7 @@ const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "
 const LABELS: Record<BackgroundJob, string> = {
 	consolidation: "Memory consolidation",
 	review: "Memory review",
+	"size-consolidation": "Memory size consolidation",
 };
 
 export function createBackgroundProgress(options: BackgroundProgressOptions): {

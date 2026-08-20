@@ -58,6 +58,14 @@ day it does not.
 		"security": {
 			"customPatterns": []
 		},
+		"sizeLimits": {
+			"userBytes": 5368709120,
+			"projectBytes": 2147483648,
+			"warningRatio": 0.8,
+			"consolidationRatio": 0.9,
+			"maxPasses": 5,
+			"protectedTags": ["protected"]
+		},
 		"consolidation": {
 			"enabled": true,
 			"quietMs": 420000,
@@ -120,6 +128,43 @@ definition of a topic change.
 | `memory.manifest` | `true` | the one-line inventory shown once at session start, so the model knows there is something to ask about |
 | `memory.queryMaxChars` | `600` | ceiling on the recall query. Lexical retrieval degrades as terms pile up, and a pasted wall of text drowns the words that identify the question |
 | `memory.output` | `"short"` | how much of what a memory tool did is printed **in your terminal**. See below |
+
+## Size limits: `memory.sizeLimits.*`
+
+These limits apply separately to the shared user memory and to the current
+project memory. Values are bytes; the defaults are 5 GiB for user memory and 2
+GiB for each project memory.
+
+The active size is the manifest, current snapshot, journal and lock file. Old
+snapshots held by another reader are reported as storage overhead but do not
+make the logical memory limit impossible to satisfy. Notes bodies in `notes/`
+are separate from the plugmem database and are not included.
+
+| key | default | what it does |
+|---|---:|---|
+| `memory.sizeLimits.userBytes` | `5368709120` | active-byte limit for shared user memory; `0` disables it |
+| `memory.sizeLimits.projectBytes` | `2147483648` | active-byte limit for the current project; `0` disables it |
+| `memory.sizeLimits.warningRatio` | `0.8` | show a warning at 80% of the limit |
+| `memory.sizeLimits.consolidationRatio` | `0.9` | queue safe size consolidation at 90% |
+| `memory.sizeLimits.maxPasses` | `5` | maximum completed pressure passes before stopping |
+| `memory.sizeLimits.protectedTags` | `["protected"]` | tags whose facts cannot be removed by automatic pressure consolidation |
+
+At 100%, operations that grow the database (`remember`, `remember_many`,
+`revise`, links and note pointers) are blocked. Recall, Inspector, forgetting,
+unlinking and maintenance remain available. A single large write may briefly
+cross the limit before the next size check; this is a logical storage limit,
+not an operating-system quota.
+
+The automatic pass first runs physical maintenance, then shows the local model
+a small oldest-fact window. It may remove only clearly redundant, obsolete,
+temporary or low-value facts. It never deletes facts merely because they are
+old, and it never receives an instruction to delete arbitrary facts until the
+number fits. Facts tagged `instruction`, `always`, or one of the configured
+protected tags are excluded and rejected by the runtime if guessed anyway.
+
+If no safe candidate is found, or the size does not decrease, the pass stops.
+The memory remains readable, but further growth is blocked until a person
+removes facts in Inspector or raises the limit.
 
 ## What you see when the memory is used: `memory.output`
 

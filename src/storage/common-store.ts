@@ -23,6 +23,7 @@ import type {
 	EdgeRef,
 	FactCard,
 	GuardedRememberResult,
+	MaintainMode,
 	MemoryStats,
 	RecallInput,
 	RecallResult,
@@ -159,8 +160,8 @@ export class CommonStore implements WritableMemory {
 	 * wait and how to give up. The lease publishes on the way out, which is what
 	 * makes the smaller file visible to everyone else.
 	 */
-	async maintain(): Promise<void> {
-		await this.withWriteLease((writer) => writer.maintain());
+	async maintain(mode: MaintainMode = "auto"): Promise<void> {
+		await this.withWriteLease((writer) => writer.maintain(mode));
 	}
 
 	async remember(input: RememberInput): Promise<RememberResult> {
