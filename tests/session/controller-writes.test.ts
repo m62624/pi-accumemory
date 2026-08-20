@@ -144,6 +144,24 @@ describe("automatic size-pressure deletion", () => {
 		);
 		expect(await project?.get(1)).not.toBeNull();
 	});
+
+	it("keeps automatic deletion protection out of a concurrent manual call", async () => {
+		const { controller, project } = build();
+		await project?.remember({ text: "Automatic cleanup candidate." });
+		await project?.remember({ text: "Manual cleanup candidate." });
+		let release!: () => void;
+		const hold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const automatic = controller.withAutomaticDeleteProtection(async () => {
+			await hold;
+			return controller.forget([0], "project");
+		}, [0]);
+
+		expect(await controller.forget([1], "project")).toMatch(/Forgot/);
+		release();
+		expect(await automatic).toMatch(/Forgot/);
+	});
 });
 
 describe("the secret write gate", () => {

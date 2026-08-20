@@ -2,9 +2,10 @@
  * Safe, bounded cleanup when one memory approaches its byte budget.
  *
  * The agent sees only an oldest bounded candidate window and only the forget
- * tools. Runtime code filters protected facts and the controller rejects a
- * protected id even if a model guesses it. A pass may fail to reclaim enough
- * space; that is a reportable state, never a reason to delete arbitrary facts.
+ * tools. Runtime code filters protected facts and the controller rejects an id
+ * outside the candidate window, even if a model guesses it. A pass may fail to
+ * reclaim enough space; that is a reportable state, never a reason to delete
+ * arbitrary facts.
  */
 
 import type { InstructionManager } from "../instructions/manager.ts";

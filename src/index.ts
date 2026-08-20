@@ -283,6 +283,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 		idle?.cancel();
 		reviewTrigger?.cancel();
 		sizePressureAbort?.abort();
+		shownSizeStates.clear();
 		backgroundProgress.cancel();
 		session?.close();
 		session = undefined;
@@ -334,9 +335,14 @@ export default function accumemory(pi: ExtensionAPI): void {
 		if (current?.sizePressure !== undefined && scopes.length > 0) {
 			const abort = new AbortController();
 			sizePressureAbort = abort;
+			const requeue = () => {
+				for (const scope of scopes) current.queueSizePressure(scope);
+			};
+			abort.signal.addEventListener("abort", requeue, { once: true });
 			void enqueueBackground(abort.signal, async () => {
 				const progress = backgroundProgress.begin("size-consolidation");
 				current.controller.noteBackgroundPassStart();
+				let retry = false;
 				try {
 					for (const scope of scopes) {
 						if (abort.signal.aborted) break;
@@ -344,6 +350,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 							scope,
 							abort.signal,
 						);
+						if (outcome?.reason === "interrupted") retry = true;
 						if (
 							outcome !== undefined &&
 							(outcome.reason === "no-candidates" ||
@@ -360,8 +367,12 @@ export default function accumemory(pi: ExtensionAPI): void {
 					}
 					progress.end(abort.signal.aborted ? "interrupted" : "completed");
 				} catch {
+					retry = true;
 					progress.end(abort.signal.aborted ? "interrupted" : "failed");
 				} finally {
+					if (retry) {
+						requeue();
+					}
 					if (sizePressureAbort === abort) sizePressureAbort = undefined;
 				}
 			});
@@ -583,6 +594,7 @@ export default function accumemory(pi: ExtensionAPI): void {
 		reviewTrigger?.interrupt();
 		sizePressureAbort?.abort();
 		sizePressureAbort = undefined;
+		shownSizeStates.clear();
 		backgroundProgress.cancel();
 		session?.close();
 		session = undefined;

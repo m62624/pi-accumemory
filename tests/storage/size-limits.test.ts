@@ -145,4 +145,33 @@ describe("SizeLimitedMemory", () => {
 		});
 		expect(await memory.listEdges()).toEqual([]);
 	});
+
+	it("checks the limit inside a shared write lease", async () => {
+		const fs = new FakeFs();
+		fs.files.set(DB, "base");
+		fs.files.set(`${DB}.snap.1`, "12345");
+		const inner = new FakeMemory();
+		(
+			inner as unknown as {
+				withWriteLease<T>(fn: (writer: FakeMemory) => Promise<T>): Promise<T>;
+			}
+		).withWriteLease = async (fn) => {
+			fs.files.set(`${DB}.journal`, "1");
+			return fn(inner);
+		};
+		const memory = new SizeLimitedMemory({
+			scope: "user",
+			inner,
+			settings: limits(10),
+			fs,
+			pathModule: path.posix,
+			dbPath: DB,
+			onSize: () => {},
+		});
+
+		await expect(
+			memory.remember({ text: "The project uses Vitest." }),
+		).rejects.toBeInstanceOf(MemoryLimitError);
+		expect(inner.live()).toHaveLength(0);
+	});
 });

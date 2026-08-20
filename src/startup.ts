@@ -146,6 +146,8 @@ export interface StartedSession {
 	sizeSnapshot(scope: SizeScope): SizeSnapshot | undefined;
 	/** Thresholds reached since the last background pressure pass was scheduled. */
 	takeSizePressureScopes(): SizeScope[];
+	/** Requeue an interrupted or failed pressure pass for the next settled turn. */
+	queueSizePressure(scope: SizeScope): void;
 	/** `0` when transcript consolidation is off. */
 	consolidationQuietMs: number;
 	/** `0` when automatic review is off. */
@@ -627,6 +629,7 @@ export async function startSession(
 			pendingSizePressure.clear();
 			return scopes;
 		},
+		queueSizePressure: (scope) => pendingSizePressure.add(scope),
 		consolidationQuietMs:
 			consolidation === undefined ? 0 : settings.memory.consolidation.quietMs,
 		reviewIntervalMs:

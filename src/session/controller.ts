@@ -8,6 +8,7 @@
  * `database` argument anywhere in this extension for it to fill in.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { AskGuard } from "../memory/ask-guard.ts";
 import {
 	type BlockSection,
@@ -175,10 +176,10 @@ export class MemoryController {
 	 * tools do not work".
 	 */
 	private readonly forgotten = new Set<string>();
-	/** True only while the private size-pressure agent is allowed to delete. */
-	private automaticDeleteProtection = false;
-	/** The bounded candidate ids exposed to that private agent. */
-	private automaticDeleteIds: Set<number> | undefined;
+	/** Protection belongs to the private pressure agent's async call tree only. */
+	private readonly automaticDeleteContext = new AsyncLocalStorage<{
+		allowedIds?: ReadonlySet<number>;
+	}>();
 
 	constructor(private readonly deps: ControllerDeps) {
 		this.refresh = new RefreshPolicy(deps.settings.memory.refresh);
@@ -925,10 +926,11 @@ export class MemoryController {
 		}
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
-		if (this.automaticDeleteProtection) {
-			if (this.automaticDeleteIds !== undefined) {
+		const automaticDelete = this.automaticDeleteContext.getStore();
+		if (automaticDelete !== undefined) {
+			if (automaticDelete.allowedIds !== undefined) {
 				const outsideWindow = ids.find(
-					(id) => !this.automaticDeleteIds?.has(id),
+					(id) => !automaticDelete.allowedIds?.has(id),
 				);
 				if (outsideWindow !== undefined) {
 					return (
@@ -1223,17 +1225,14 @@ export class MemoryController {
 		work: () => Promise<T>,
 		allowedIds?: readonly number[],
 	): Promise<T> {
-		const previous = this.automaticDeleteProtection;
-		const previousIds = this.automaticDeleteIds;
-		this.automaticDeleteProtection = true;
-		this.automaticDeleteIds =
-			allowedIds === undefined ? undefined : new Set(allowedIds);
-		try {
-			return await work();
-		} finally {
-			this.automaticDeleteProtection = previous;
-			this.automaticDeleteIds = previousIds;
-		}
+		return this.automaticDeleteContext.run(
+			{
+				...(allowedIds === undefined
+					? {}
+					: { allowedIds: new Set(allowedIds) }),
+			},
+			work,
+		);
 	}
 
 	private protectedTags(): Set<string> {

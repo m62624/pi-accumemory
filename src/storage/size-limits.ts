@@ -90,6 +90,10 @@ export interface SizeLimitOptions {
 	onSize: (snapshot: SizeSnapshot) => void | Promise<void>;
 }
 
+interface LeaseAwareMemory extends WritableMemory {
+	withWriteLease<T>(fn: (writer: WritableMemory) => Promise<T>): Promise<T>;
+}
+
 /**
  * Measures the active database and reports old generations separately.
  *
@@ -181,22 +185,21 @@ export class SizeLimitedMemory implements WritableMemory {
 	}
 
 	async remember(input: RememberInput): Promise<RememberResult> {
-		await this.beforeGrowth();
-		const result = await this.options.inner.remember(input);
+		const result = await this.admitted((memory) => memory.remember(input));
 		await this.afterMutation();
 		return result;
 	}
 
 	async rememberGuarded(input: RememberInput): Promise<GuardedRememberResult> {
-		await this.beforeGrowth();
-		const result = await this.options.inner.rememberGuarded(input);
+		const result = await this.admitted((memory) =>
+			memory.rememberGuarded(input),
+		);
 		if (result.status === "stored") await this.afterMutation();
 		return result;
 	}
 
 	async revise(id: number, input: RememberInput): Promise<RememberResult> {
-		await this.beforeGrowth();
-		const result = await this.options.inner.revise(id, input);
+		const result = await this.admitted((memory) => memory.revise(id, input));
 		await this.afterMutation();
 		return result;
 	}
@@ -214,8 +217,7 @@ export class SizeLimitedMemory implements WritableMemory {
 	}
 
 	async link(edge: EdgeRef): Promise<void> {
-		await this.beforeGrowth();
-		await this.options.inner.link(edge);
+		await this.admitted((memory) => memory.link(edge));
 		await this.afterMutation();
 	}
 
@@ -277,6 +279,20 @@ export class SizeLimitedMemory implements WritableMemory {
 		) {
 			throw new MemoryLimitError(snapshot);
 		}
+	}
+
+	private async admitted<T>(
+		operation: (memory: WritableMemory) => Promise<T>,
+	): Promise<T> {
+		const inner = this.options.inner as Partial<LeaseAwareMemory>;
+		if (typeof inner.withWriteLease === "function") {
+			return inner.withWriteLease(async (writer) => {
+				await this.beforeGrowth();
+				return operation(writer);
+			});
+		}
+		await this.beforeGrowth();
+		return operation(this.options.inner);
 	}
 
 	private async afterMutation(): Promise<void> {
