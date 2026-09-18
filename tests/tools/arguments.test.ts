@@ -168,6 +168,31 @@ describe("tool arguments", () => {
 		);
 	});
 
+	it("revises an ordinary fact that merely carries the note tag", async () => {
+		// The tag is a convention the model may reuse; only a fact whose
+		// metadata names a note body is a pointer. Refusing on the tag alone
+		// locked such a fact out of revise and out of dropping the tag.
+		const { call, project } = build();
+		const stored = await call("longterm_remember", {
+			text: "the importer reads a catalogue",
+			entity: "importer",
+			tags: ["note"],
+		});
+		const id = Number(/\[f(\d+)\]/.exec(stored)?.[1]);
+
+		const answer = await call("longterm_revise", {
+			id,
+			text: "the importer reads an updated catalogue",
+			scope: "project",
+			tags: [],
+		});
+		expect(answer).toMatch(/Revised/);
+		expect(project.live()[0]?.text).toBe(
+			"the importer reads an updated catalogue",
+		);
+		expect(project.live()[0]?.tags).toEqual([]);
+	});
+
 	it("ignores a non-numeric k or graph depth", async () => {
 		const { call } = build();
 		await expect(
