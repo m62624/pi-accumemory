@@ -1,7 +1,10 @@
 name: Labeler
 
 on:
-  pull_request:
+  # This job only reads the PR title and calls the labels API. It deliberately
+  # does not check out or execute the PR branch, so pull_request_target gives it
+  # the repository token it needs even when the PR comes from a fork.
+  pull_request_target:
     types: [opened, edited, synchronized]
 
 jobs:
@@ -9,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
       pull-requests: write
     steps:
       - name: Label PR based on title

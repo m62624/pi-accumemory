@@ -338,8 +338,8 @@ Prefer a fact. A note is for what genuinely does not compress into a sentence.`;
 const tags = `# Tags
 
 There is no fixed vocabulary: use the tags this work actually needs. Common ones
-are \`decision\`, \`convention\`, \`gotcha\`, \`instruction\`, \`preference\`, \`tooling\`,
-\`note\`.
+are \`decision\`, \`convention\`, \`gotcha\`, \`instruction\`, \`preference\`,
+\`tooling\`.
 
 One rule, because filtering by tag matches **exactly** - no stemming, no
 synonyms. \`bug\` and \`bugfix\` are two different tags holding two disjoint piles of

@@ -30,7 +30,7 @@ import {
 	type Neighbour,
 	type WriteReport,
 } from "../memory/write-report.ts";
-import { NOTE_TAG, type NoteStore } from "../notes/store.ts";
+import { NOTE_ID_KEY, type NoteStore } from "../notes/store.ts";
 import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import {
@@ -863,11 +863,16 @@ export class MemoryController {
 		if (secretRefusal !== undefined) return secretRefusal;
 		const current = await memory.get(id);
 		if (current === null) return this.missing(id, scope, "revise");
-		if (current.tags.includes(NOTE_TAG)) {
+		// A note pointer is identified by its metadata, not by its tag. The tag
+		// is a convention the model may also use on an ordinary fact, and
+		// refusing on it locked such a fact out of revise and out of dropping
+		// the tag. The pointer is the fact whose metadata names the note body.
+		const noteId = current.metadata[NOTE_ID_KEY];
+		if (noteId !== undefined) {
 			return (
 				`Fact [f${id}] is a note pointer, not an ordinary fact. ` +
-				"Use longterm_note_update with its note_id so the Markdown body and " +
-				"its database pointer stay in sync."
+				`Use longterm_note_update with note_id "${noteId}" so the Markdown ` +
+				"body and its database pointer stay in sync."
 			);
 		}
 		const currentScan = await memory.scan({ from: id, limit: 1 });
