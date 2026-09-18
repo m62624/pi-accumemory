@@ -21,6 +21,7 @@
 
 import { UnknownNoteError } from "../notes/store.ts";
 import type { MemoryController } from "../session/controller.ts";
+import { MemoryLimitError } from "../storage/size-limits.ts";
 import { ABOUT_DESCRIPTION, ABOUT_TOPICS } from "./about.ts";
 import {
 	defined,
@@ -531,7 +532,13 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 			run: async (args) => {
 				const notes = controller.notes(scopeOf(args.scope));
 				if (notes === undefined) return NO_PROJECT_NOTES;
-				const created = await notes.create(str(args.title), str(args.content));
+				let created: Awaited<ReturnType<typeof notes.create>>;
+				try {
+					created = await notes.create(str(args.title), str(args.content));
+				} catch (error) {
+					if (error instanceof MemoryLimitError) return error.message;
+					throw error;
+				}
 				controller.record({
 					kind: "note",
 					action: "created",
@@ -610,6 +617,7 @@ export function longtermTools(controller: ToolController): ToolSpec[] {
 					// the same wrong id given to note_read and note_delete gets a
 					// sentence, and an exception here would reach the model as a
 					// tool that broke rather than a note that is missing.
+					if (error instanceof MemoryLimitError) return error.message;
 					if (!(error instanceof UnknownNoteError)) throw error;
 					return (
 						`There is no note ${error.noteId} in ${scopeOf(args.scope)} memory. ` +

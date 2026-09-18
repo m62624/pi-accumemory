@@ -76,4 +76,11 @@ export class FakeFs implements FileOps {
 			.map((file) => file.slice(trimmed.length + 1))
 			.filter((name) => !name.includes("/") && !name.includes("\\"));
 	}
+
+	async fileSize(file: string): Promise<number | undefined> {
+		const content = this.files.get(file);
+		return content === undefined
+			? undefined
+			: Buffer.byteLength(content, "utf8");
+	}
 }

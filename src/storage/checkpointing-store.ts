@@ -19,6 +19,7 @@ import type {
 	EdgeRef,
 	FactCard,
 	GuardedRememberResult,
+	MaintainMode,
 	MemoryStats,
 	RecallInput,
 	RecallResult,
@@ -98,8 +99,8 @@ export class CheckpointingStore implements WritableMemory {
 	 * writes through, so it is the only one that can compact what the session
 	 * removed.
 	 */
-	async maintain(): Promise<void> {
-		await this.inner.maintain();
+	async maintain(mode: MaintainMode = "auto"): Promise<void> {
+		await this.inner.maintain(mode);
 	}
 
 	async checkpoint(): Promise<void> {
