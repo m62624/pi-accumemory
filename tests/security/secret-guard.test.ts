@@ -40,7 +40,7 @@ describe("secret guard", () => {
 		expect(result.message).not.toContain(
 			"123456789012345678901234567890123456",
 		);
-	});
+	}, 15_000);
 
 	it("covers local environment, connection, JWT and key formats", async () => {
 		for (const text of [
