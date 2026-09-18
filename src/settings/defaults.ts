@@ -87,6 +87,21 @@ export interface SecuritySettings {
 	customPatterns: CustomSecretPattern[];
 }
 
+export interface SizeLimitSettings {
+	/** Maximum active database footprint for shared user memory, in bytes. */
+	userBytes: number;
+	/** Maximum active database footprint for the current project, in bytes. */
+	projectBytes: number;
+	/** Warn once a memory reaches this fraction of its limit. */
+	warningRatio: number;
+	/** Queue safe pressure consolidation at this fraction of its limit. */
+	consolidationRatio: number;
+	/** Maximum completed pressure passes before leaving the memory over-limit. */
+	maxPasses: number;
+	/** Additional tags whose facts must never be removed automatically. */
+	protectedTags: string[];
+}
+
 /**
  * The habit phase: a mistake the model has repeated across sessions.
  *
@@ -188,6 +203,7 @@ export interface Settings {
 		nudge: NudgeSettings;
 		inspect: InspectSettings;
 		security: SecuritySettings;
+		sizeLimits: SizeLimitSettings;
 		consolidation: ConsolidationSettings;
 		crossProject: { enabled: boolean };
 	};
@@ -246,6 +262,14 @@ export const DEFAULT_SETTINGS: Settings = deepFreeze({
 		},
 		security: {
 			customPatterns: [],
+		},
+		sizeLimits: {
+			userBytes: 5 * 1024 ** 3,
+			projectBytes: 2 * 1024 ** 3,
+			warningRatio: 0.8,
+			consolidationRatio: 0.9,
+			maxPasses: 5,
+			protectedTags: ["protected"],
 		},
 		consolidation: {
 			enabled: true,

@@ -89,6 +89,16 @@ export const nodeFileOps: FileOps = {
 			throw error;
 		}
 	},
+
+	async fileSize(file: string): Promise<number | undefined> {
+		try {
+			const info = await stat(file);
+			return info.isFile() ? info.size : undefined;
+		} catch (error) {
+			if (isMissing(error)) return undefined;
+			throw error;
+		}
+	},
 };
 
 function isMissing(error: unknown): boolean {

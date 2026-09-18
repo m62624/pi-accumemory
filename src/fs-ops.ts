@@ -33,4 +33,6 @@ export interface FileOps {
 	realPath(candidate: string): Promise<string>;
 	/** Immediate file names in `dir`, without paths. Empty when it is missing. */
 	listFiles(dir: string): Promise<string[]>;
+	/** Size of a regular file in bytes; undefined when it is missing. */
+	fileSize(file: string): Promise<number | undefined>;
 }

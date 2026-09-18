@@ -104,6 +104,21 @@ describe("startSession", () => {
 		expect(session.projectRoot).toBe(project);
 	});
 
+	it("blocks project growth when its active database is already over the limit", async () => {
+		const settings = settingsWith((draft) => {
+			draft.memory.sizeLimits.projectBytes = 1;
+		});
+		const session = await start(project, settings);
+
+		expect(
+			await session.controller.remember({ text: "The project uses Vitest." }),
+		).toMatch(/memory limit reached/i);
+		expect(session.sizeSnapshot("project")?.state).toBe("over-limit");
+		expect(
+			await session.controller.inspectFacts("", [], "project", 20),
+		).toEqual([]);
+	});
+
 	it("writes the plugmem config and the instruction defaults", async () => {
 		await start(project);
 		const layout = extensionLayout(agentDir, path);

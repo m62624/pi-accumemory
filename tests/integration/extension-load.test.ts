@@ -120,6 +120,10 @@ describe("the extension entry point", () => {
 			"longterm-rebind",
 			"longterm-reembed",
 		]);
+		await fire("session_start", {
+			type: "session_start",
+			reason: "startup",
+		});
 		await fire("session_shutdown", {
 			type: "session_shutdown",
 			reason: "quit",
@@ -131,10 +135,22 @@ describe("the extension entry point", () => {
 		// mid-session invalidates the cache for everything below it, so the
 		// list must be complete from the first call, not from whenever the
 		// filesystem got around to it.
-		const { api, tools } = stubApi();
+		const { api, tools, fire } = stubApi();
 		const { default: accumemory } = await import("../../src/index.ts");
 		accumemory(api as never);
 		expect(tools).toHaveLength(LONGTERM_TOOL_NAMES.length);
+		// `accumemory()` starts boot immediately. Await the lifecycle before the
+		// test's temporary HOME is removed; otherwise boot can still create
+		// memory/db while afterEach is running, making recursive rm race with it
+		// on a slower CI runner.
+		await fire("session_start", {
+			type: "session_start",
+			reason: "startup",
+		});
+		await fire("session_shutdown", {
+			type: "session_shutdown",
+			reason: "quit",
+		});
 	});
 
 	it("answers a tool call with text rather than throwing", async () => {

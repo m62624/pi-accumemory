@@ -276,5 +276,8 @@ export interface WritableMemory extends ReadableMemory {
 	 * Not cheap (it is O(database)), which is why the idle pass is where it is
 	 * called from rather than every write.
 	 */
-	maintain(): Promise<void>;
+	maintain(mode?: MaintainMode): Promise<void>;
 }
+
+/** The native maintenance policies used by the host wrapper. */
+export type MaintainMode = "auto" | "compact" | "full";

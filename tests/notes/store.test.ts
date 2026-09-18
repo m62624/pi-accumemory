@@ -40,6 +40,14 @@ describe("NoteStore", () => {
 			});
 	});
 
+	it("removes the body if the memory pointer is rejected", async () => {
+		memory.failNextWrite = new Error("memory is full");
+		await expect(notes.create("Overview", "body")).rejects.toThrow(
+			/memory is full/i,
+		);
+		expect(fs.files).toHaveLength(0);
+	});
+
 	it("stores the pointer path relative and forward-slashed", async () => {
 		// The database has to be readable on the other operating system, and
 		// has to survive the extension directory moving. An absolute native
@@ -96,6 +104,25 @@ describe("NoteStore", () => {
 		expect(
 			memory.live().filter((fact) => fact.tags.includes(NOTE_TAG)),
 		).toHaveLength(1);
+	});
+
+	it("restores the old body if the pointer revision is rejected", async () => {
+		const { noteId } = await notes.create("Overview", "first");
+		memory.failNextWrite = new Error("memory is full");
+		await expect(notes.update(noteId, "second")).rejects.toThrow(
+			/memory is full/i,
+		);
+		expect((await notes.read(noteId))?.content).toBe("first");
+	});
+
+	it("does not invent an old body when the pointer exists but its file is missing", async () => {
+		const { noteId } = await notes.create("Overview", "first");
+		fs.files.delete(`/notes/common/${noteId}.md`);
+		memory.failNextWrite = new Error("memory is full");
+		await expect(notes.update(noteId, "second")).rejects.toThrow(
+			/memory is full/i,
+		);
+		expect(fs.files.get(`/notes/common/${noteId}.md`)).toBe("second");
 	});
 
 	it("refuses to update a note that does not exist", async () => {

@@ -8,6 +8,7 @@
  * `database` argument anywhere in this extension for it to fill in.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { AskGuard } from "../memory/ask-guard.ts";
 import {
 	type BlockSection,
@@ -29,7 +30,7 @@ import {
 	type Neighbour,
 	type WriteReport,
 } from "../memory/write-report.ts";
-import { NOTE_TAG, type NoteStore } from "../notes/store.ts";
+import { NOTE_ID_KEY, type NoteStore } from "../notes/store.ts";
 import { PROJECT_TAG, projectEntity, USER_ENTITY } from "../router/entities.ts";
 import type { ProjectRouter } from "../router/router.ts";
 import {
@@ -47,6 +48,7 @@ import {
 	type ReadableMemory,
 	type WritableMemory,
 } from "../storage/port.ts";
+import { MemoryLimitError } from "../storage/size-limits.ts";
 import { AboutDesk, readAbout as readAboutPage } from "../tools/about.ts";
 import { defined } from "../tools/args.ts";
 import type { StumbleKind, StumbleLog } from "./stumbles.ts";
@@ -174,6 +176,10 @@ export class MemoryController {
 	 * tools do not work".
 	 */
 	private readonly forgotten = new Set<string>();
+	/** Protection belongs to the private pressure agent's async call tree only. */
+	private readonly automaticDeleteContext = new AsyncLocalStorage<{
+		allowedIds?: ReadonlySet<number>;
+	}>();
 
 	constructor(private readonly deps: ControllerDeps) {
 		this.refresh = new RefreshPolicy(deps.settings.memory.refresh);
@@ -676,6 +682,9 @@ export class MemoryController {
 		} catch (error) {
 			// Nothing was stored. Saying which is the whole point: a model told
 			// only "error" either drops the fact or writes it again five times.
+			if (error instanceof MemoryLimitError) {
+				return { status: "blocked", response: error.message };
+			}
 			if (!isEmbedderFailure(error)) throw error;
 			return {
 				status: "error",
@@ -854,11 +863,16 @@ export class MemoryController {
 		if (secretRefusal !== undefined) return secretRefusal;
 		const current = await memory.get(id);
 		if (current === null) return this.missing(id, scope, "revise");
-		if (current.tags.includes(NOTE_TAG)) {
+		// A note pointer is identified by its metadata, not by its tag. The tag
+		// is a convention the model may also use on an ordinary fact, and
+		// refusing on it locked such a fact out of revise and out of dropping
+		// the tag. The pointer is the fact whose metadata names the note body.
+		const noteId = current.metadata[NOTE_ID_KEY];
+		if (noteId !== undefined) {
 			return (
 				`Fact [f${id}] is a note pointer, not an ordinary fact. ` +
-				"Use longterm_note_update with its note_id so the Markdown body and " +
-				"its database pointer stay in sync."
+				`Use longterm_note_update with note_id "${noteId}" so the Markdown ` +
+				"body and its database pointer stay in sync."
 			);
 		}
 		const currentScan = await memory.scan({ from: id, limit: 1 });
@@ -869,16 +883,22 @@ export class MemoryController {
 			const overflow = await this.wouldOverflowAlways(text, { id, scope });
 			if (overflow !== undefined) return overflow;
 		}
-		const stored = await memory.revise(id, {
-			text,
-			...defined({
-				entity: entity ?? currentEntity,
-				tags: tags ?? current.tags,
-				// An omitted metadata field means "keep the old side attributes".
-				// An explicit empty object clears metadata; omission preserves it.
-				metadata: metadata ?? current.metadata,
-			}),
-		});
+		let stored: Awaited<ReturnType<typeof memory.revise>>;
+		try {
+			stored = await memory.revise(id, {
+				text,
+				...defined({
+					entity: entity ?? currentEntity,
+					tags: tags ?? current.tags,
+					// An omitted metadata field means "keep the old side attributes".
+					// An explicit empty object clears metadata; omission preserves it.
+					metadata: metadata ?? current.metadata,
+				}),
+			});
+		} catch (error) {
+			if (error instanceof MemoryLimitError) return error.message;
+			throw error;
+		}
 		this.noteWrote();
 		this.record({
 			kind: "revise",
@@ -911,6 +931,33 @@ export class MemoryController {
 		}
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
+		const automaticDelete = this.automaticDeleteContext.getStore();
+		if (automaticDelete !== undefined) {
+			if (automaticDelete.allowedIds !== undefined) {
+				const outsideWindow = ids.find(
+					(id) => !automaticDelete.allowedIds?.has(id),
+				);
+				if (outsideWindow !== undefined) {
+					return (
+						`Not forgotten [f${outsideWindow}] from ${this.label(scope)}: ` +
+						"it is outside the bounded automatic cleanup candidate list. " +
+						"Choose only one of the candidates shown for this pass."
+					);
+				}
+			}
+			const protectedTags = this.protectedTags();
+			for (const id of ids) {
+				const card = await memory.get(id);
+				const hit = card?.tags.filter((tag) => protectedTags.has(tag)) ?? [];
+				if (hit.length > 0) {
+					return (
+						`Not forgotten [f${id}] from ${this.label(scope)}: it is protected ` +
+						`by tag ${hit.map((tag) => `#${tag}`).join(", ")}. ` +
+						"Choose another candidate or finish the pressure pass."
+					);
+				}
+			}
+		}
 
 		// Read BEFORE closing anything, because afterwards there is nothing to
 		// read: a forgotten fact leaves recall at once. This is the only moment
@@ -1076,7 +1123,12 @@ export class MemoryController {
 	): Promise<string> {
 		const memory = this.writableScope(scope);
 		if (memory === undefined) return this.noProjectMessage();
-		await memory.link({ src, rel, dst });
+		try {
+			await memory.link({ src, rel, dst });
+		} catch (error) {
+			if (error instanceof MemoryLimitError) return error.message;
+			throw error;
+		}
 		this.record({
 			kind: "link",
 			undone: false,
@@ -1156,6 +1208,44 @@ export class MemoryController {
 			text: fact.text,
 			tags: fact.tags,
 		}));
+	}
+
+	/** Candidate window for the automatic size-pressure pass. */
+	async sizeCandidates(
+		scope: Exclude<Scope, "both">,
+		limit: number,
+	): Promise<{ id: number; text: string; tags: string[] }[]> {
+		const memory = this.readableScope(scope);
+		if (memory === undefined || limit <= 0) return [];
+		const protectedTags = this.protectedTags();
+		const scanned = await memory.scan({ limit: Math.max(limit * 3, limit) });
+		return scanned
+			.filter((fact) => !fact.tags.some((tag) => protectedTags.has(tag)))
+			.slice(0, limit)
+			.map((fact) => ({ id: fact.id, text: fact.text, tags: fact.tags }));
+	}
+
+	/** Runs a private pass with deterministic protection around delete calls. */
+	async withAutomaticDeleteProtection<T>(
+		work: () => Promise<T>,
+		allowedIds?: readonly number[],
+	): Promise<T> {
+		return this.automaticDeleteContext.run(
+			{
+				...(allowedIds === undefined
+					? {}
+					: { allowedIds: new Set(allowedIds) }),
+			},
+			work,
+		);
+	}
+
+	private protectedTags(): Set<string> {
+		return new Set([
+			INSTRUCTION_TAG,
+			ALWAYS_TAG,
+			...this.deps.settings.memory.sizeLimits.protectedTags,
+		]);
 	}
 
 	/**

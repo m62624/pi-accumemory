@@ -21,6 +21,8 @@ type FieldSpec =
 	| { kind: "count"; nullable?: boolean }
 	/** One of a fixed set of words; anything else names the allowed ones. */
 	| { kind: "choice"; of: readonly string[] }
+	/** A finite number between zero and one. */
+	| { kind: "ratio" }
 	/** A list of non-empty strings; the empty list is a legitimate value. */
 	| { kind: "strings" }
 	/** Additional secret-blocking regex objects, validated and filtered at load. */
@@ -29,6 +31,7 @@ type FieldSpec =
 
 const COUNT: FieldSpec = { kind: "count" };
 const BOOL: FieldSpec = { kind: "boolean" };
+const RATIO: FieldSpec = { kind: "ratio" };
 
 const SCHEMA: Record<string, FieldSpec> = {
 	timezone: { kind: "string", nullable: true },
@@ -80,6 +83,17 @@ const SCHEMA: Record<string, FieldSpec> = {
 			security: {
 				kind: "section",
 				fields: { customPatterns: { kind: "customPatterns" } },
+			},
+			sizeLimits: {
+				kind: "section",
+				fields: {
+					userBytes: COUNT,
+					projectBytes: COUNT,
+					warningRatio: RATIO,
+					consolidationRatio: RATIO,
+					maxPasses: COUNT,
+					protectedTags: { kind: "strings" },
+				},
 			},
 			consolidation: {
 				kind: "section",
@@ -137,6 +151,15 @@ export function parseSettings(raw: unknown): ParsedSettings {
 		unknown
 	>;
 	overlay(settings, raw, SCHEMA, "", warnings);
+	const memory = (settings.memory as Record<string, unknown>).sizeLimits as {
+		warningRatio: number;
+		consolidationRatio: number;
+	};
+	if (memory.warningRatio >= memory.consolidationRatio) {
+		throw new SettingsError(
+			'settings: "memory.sizeLimits.warningRatio" must be less than "memory.sizeLimits.consolidationRatio"',
+		);
+	}
 	return { settings: settings as unknown as Settings, warnings };
 }
 
@@ -203,6 +226,18 @@ function checkScalar(
 			if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
 				throw new SettingsError(
 					`settings: "${dotted}" must be a number: a non-negative whole count`,
+				);
+			}
+			return value;
+		case "ratio":
+			if (
+				typeof value !== "number" ||
+				!Number.isFinite(value) ||
+				value < 0 ||
+				value > 1
+			) {
+				throw new SettingsError(
+					`settings: "${dotted}" must be a number between 0 and 1`,
 				);
 			}
 			return value;
