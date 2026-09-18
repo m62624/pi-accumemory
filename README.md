@@ -5,7 +5,7 @@
 > cloud model, in roughly equal measure. Expect non-professional design
 > choices, rough edges, broken behavior, or mistakes. Use it at your own risk.
 
-Long-term memory for [pi](https://github.com/earendil-works/pi-coding-agent).
+Long-term memory for [pi](https://github.com/earendil-works/pi).
 
 ## What problem this solves
 
