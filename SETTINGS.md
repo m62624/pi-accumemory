@@ -640,6 +640,8 @@ client names) but never weaker.
 
 | command | what it does |
 |---|---|
+| `/longterm-btw` | open a temporary panel for one private question about the current chat |
+| `/longterm-incognito on` | open a separate private chat. Escape or `/longterm-incognito off` closes it |
 | `/longterm-status` | which project this is, where the memory lives, what projects are registered |
 | `/longterm-inspect` | search, inspect, tag-filter, and batch-delete stored facts in a responsive terminal window |
 | `/longterm-consolidate` | run the background pass now instead of waiting for a quiet period |

@@ -26,6 +26,7 @@ import { isToolReport, personLine } from "./memory/tool-report.ts";
 import type { Turn } from "./memory/transcript-view.ts";
 import { hasToolCalls, messageToTurn, toTurns } from "./messages.ts";
 import { nodeFileOps } from "./node-fs.ts";
+import { registerPrivateChat } from "./private-chat.ts";
 import { withHead } from "./session/head.ts";
 import { createIdleTrigger } from "./session/idle-trigger.ts";
 import {
@@ -413,6 +414,8 @@ export default function accumemory(pi: ExtensionAPI): void {
 	});
 
 	// -- commands ------------------------------------------------------------
+
+	registerPrivateChat(pi);
 
 	pi.registerCommand("longterm-status", {
 		description: "What pi-accumemory has open, and what it holds",

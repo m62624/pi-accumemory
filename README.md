@@ -219,6 +219,22 @@ forget them in one confirmed batch. It waits until background consolidation or
 review has finished, so the list does not change underneath the inspector. Its
 result page size is controlled by `memory.inspect.pageSize` in `settings.json`.
 
+### Private questions and chats
+
+- Run `/longterm-btw`, then type one question in the panel. The selected model
+  gets recent text from the current chat, including any available summary.
+- Run `/longterm-incognito on` for a separate chat that starts empty. Its
+  follow-ups share context until you press Escape or enter
+  `/longterm-incognito off` in the panel.
+
+The panel keeps questions and answers in RAM and sends them to the selected
+model without tools. Closing the panel, quitting Pi, or a process crash
+discards the private conversation. It stays out of Pi's history and export and
+out of Accumemory's notes, databases, and background consolidation. Enter
+private text in the panel, since the normal editor handles the slash command
+itself. The model provider receives every request and follows its own data
+retention policy.
+
 ## What happens when the model writes
 
 The normal path is:
