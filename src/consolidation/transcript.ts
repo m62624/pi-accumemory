@@ -16,7 +16,9 @@ import type { Turn } from "../memory/transcript-view.ts";
 import { messageToTurn } from "../messages.ts";
 
 export interface PathFlavour {
+	isAbsolute(file: string): boolean;
 	join(...parts: string[]): string;
+	resolve(...parts: string[]): string;
 }
 
 export interface TranscriptCursor {
@@ -24,6 +26,8 @@ export interface TranscriptCursor {
 	file: string;
 	/** Lines already consumed. */
 	line: number;
+	/** Older cursors counted the empty segment after a final newline. */
+	version?: 2;
 }
 
 export interface ReadOptions {
@@ -61,30 +65,64 @@ export async function readTranscriptTail(
 	);
 	const files = (await fs.listFiles(dir))
 		.filter((name) => name.endsWith(".jsonl"))
-		.sort();
-	const newest = files.at(-1);
-	if (newest === undefined) return { turns: [] };
+		.sort()
+		.reverse();
+	const cwd = options.flavour.resolve(options.cwd);
+	for (const file of files) {
+		const raw = await fs.readFile(options.flavour.join(dir, file));
+		if (raw === undefined) continue;
+		const lines = raw.split("\n");
+		const header = parseRecord(lines[0] ?? "");
+		// The directory encoding is lossy, so two different working directories
+		// can share it. Use the original cwd recorded by Pi to identify the file.
+		if (
+			header?.type !== "session" ||
+			typeof header.cwd !== "string" ||
+			!options.flavour.isAbsolute(header.cwd) ||
+			options.flavour.resolve(header.cwd) !== cwd
+		) {
+			continue;
+		}
+		return readLines(file, lines, options);
+	}
+	return { turns: [] };
+}
 
-	const raw = await fs.readFile(options.flavour.join(dir, newest));
-	if (raw === undefined) return { turns: [] };
-
-	const lines = raw.split("\n");
-	// A cursor from a different file is a cursor into a different conversation:
-	// its line offset points somewhere arbitrary here, so start over.
-	const from = options.cursor?.file === newest ? options.cursor.line : 0;
+function readLines(
+	file: string,
+	lines: string[],
+	options: ReadOptions,
+): TranscriptTail {
+	const last = lines.at(-1);
+	if (last !== undefined && parseRecord(last) === undefined) {
+		// Neither a trailing newline nor a partially written JSON record has
+		// consumed a line yet. The next append can fill this same slot.
+		lines.pop();
+	}
+	const cursor = options.cursor;
+	const saved = cursor?.file === file ? cursor.line : 0;
+	// Re-read one line for legacy cursors. A repeated fact is safer than
+	// starting at a line that the old cursor accidentally skipped.
+	const adjusted = saved - (cursor?.version === 2 ? 0 : 1);
+	const from =
+		Number.isSafeInteger(saved) && adjusted <= lines.length
+			? Math.max(0, adjusted)
+			: 0;
 
 	const turns: Turn[] = [];
 	for (const line of lines.slice(from)) {
-		const turn = parseLine(line);
-		if (turn !== undefined) turns.push(turn);
+		const record = parseRecord(line);
+		if (record?.type !== "message") continue;
+		const turn = messageToTurn(record.message);
+		if (turn !== undefined && turn.text !== "") turns.push(turn);
 	}
 	return {
 		turns: clampToBudget(turns, options.maxChars),
-		cursor: { file: newest, line: lines.length },
+		cursor: { file, line: lines.length, version: 2 },
 	};
 }
 
-function parseLine(line: string): Turn | undefined {
+function parseRecord(line: string): Record<string, unknown> | undefined {
 	const trimmed = line.trim();
 	if (trimmed === "") return undefined;
 	let entry: unknown;
@@ -94,11 +132,10 @@ function parseLine(line: string): Turn | undefined {
 		// One bad line, not one bad pass.
 		return undefined;
 	}
-	if (typeof entry !== "object" || entry === null) return undefined;
-	const record = entry as Record<string, unknown>;
-	if (record.type !== "message") return undefined;
-	const turn = messageToTurn(record.message);
-	return turn !== undefined && turn.text !== "" ? turn : undefined;
+	if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+		return undefined;
+	}
+	return entry as Record<string, unknown>;
 }
 
 /**

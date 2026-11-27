@@ -6,9 +6,8 @@
  * their context towards a compaction. `SessionManager.inMemory()` gives it
  * somewhere to live that is discarded when it ends.
  *
- * The tool set is exactly the memory tools plus the one that ends the pass.
- * `noTools: "all"` first, because a pass with `bash` available is a pass that
- * can do something other than curate memory.
+ * The tool allowlist is exactly the memory tools plus the one that ends the
+ * pass. Pi's `noTools: "all"` would exclude these custom tools too.
  */
 
 import {
@@ -42,8 +41,7 @@ export function piPassAgent(options: PiPassAgentOptions): PassAgent {
 			const { session } = await createAgentSession({
 				cwd: options.cwd,
 				agentDir: options.agentDir,
-				// The pass curates memory. Nothing else.
-				noTools: "all",
+				tools: customTools.map(({ name }) => name),
 				customTools,
 				sessionManager: SessionManager.inMemory(),
 			});
