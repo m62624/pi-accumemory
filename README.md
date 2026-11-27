@@ -219,6 +219,21 @@ forget them in one confirmed batch. It waits until background consolidation or
 review has finished, so the list does not change underneath the inspector. Its
 result page size is controlled by `memory.inspect.pageSize` in `settings.json`.
 
+### Private questions and chats
+
+- Run `/longterm-btw <question>` in the normal input field. The answer appears
+  above the editor and clears when the main chat resumes. The selected model
+  gets recent text from the current chat, including any available summary.
+- Run `/longterm-incognito on` for a separate chat that starts empty. Its
+  follow-ups share context until you press Escape or enter
+  `/longterm-incognito off` in the panel.
+
+Both modes send text to the selected model without tools. Private exchanges
+stay out of Pi's session files and exports and out of Accumemory's notes,
+databases, and background consolidation. Pi's editor may recall the inline
+BTW command with the up arrow until Pi exits. The model provider receives
+every request and follows its own data retention policy.
+
 ## What happens when the model writes
 
 The normal path is:

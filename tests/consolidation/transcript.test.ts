@@ -7,6 +7,9 @@ import {
 import { FakeFs } from "../helpers/fake-fs.ts";
 
 const posix = path.posix;
+const cwd = "/home/m/app";
+const header = (directory = cwd) =>
+	JSON.stringify({ type: "session", version: 3, cwd: directory });
 
 function line(role: string, text: string): string {
 	return JSON.stringify({
@@ -35,12 +38,17 @@ describe("sessionDirName", () => {
 });
 
 describe("readTranscriptTail", () => {
+	const sessionFile = "/agent/sessions/--home-m-app--/2026-01-01_a.jsonl";
+	const options = {
+		flavour: posix,
+		sessionsRoot: "/agent/sessions",
+		cwd,
+		maxChars: 1000,
+	};
+
 	async function withSession(...lines: string[]) {
 		const fs = new FakeFs();
-		await fs.writeFile(
-			"/agent/sessions/--home-m-app--/2026-01-01_a.jsonl",
-			lines.join("\n"),
-		);
+		await fs.writeFile(sessionFile, [header(), ...lines].join("\n"));
 		return fs;
 	}
 
@@ -102,7 +110,8 @@ describe("readTranscriptTail", () => {
 		});
 		expect(read.cursor).toEqual({
 			file: "2026-01-01_a.jsonl",
-			line: 1,
+			line: 2,
+			version: 2,
 		});
 	});
 
@@ -124,11 +133,11 @@ describe("readTranscriptTail", () => {
 		const fs = new FakeFs();
 		await fs.writeFile(
 			"/agent/sessions/--home-m-app--/2026-01-01_a.jsonl",
-			line("user", "old"),
+			[header(), line("user", "old")].join("\n"),
 		);
 		await fs.writeFile(
 			"/agent/sessions/--home-m-app--/2026-02-01_b.jsonl",
-			line("user", "new"),
+			[header(), line("user", "new")].join("\n"),
 		);
 		const read = await readTranscriptTail(fs, {
 			flavour: posix,
@@ -137,6 +146,53 @@ describe("readTranscriptTail", () => {
 			maxChars: 1000,
 		});
 		expect(read.turns[0]?.text).toBe("new");
+	});
+
+	it("ignores a newer file from a different cwd with the same directory encoding", async () => {
+		expect(sessionDirName("/home/m-app")).toBe(sessionDirName(cwd));
+		const fs = await withSession(line("user", "correct project"));
+		await fs.writeFile(
+			"/agent/sessions/--home-m-app--/2026-02-01_other.jsonl",
+			[header("/home/m-app"), line("user", "different project")].join("\n"),
+		);
+		expect((await readTranscriptTail(fs, options)).turns).toEqual([
+			{ role: "user", text: "correct project" },
+		]);
+		await fs.remove(sessionFile);
+		expect(await readTranscriptTail(fs, options)).toEqual({ turns: [] });
+	});
+
+	it("resumes at the first appended message with either cursor version", async () => {
+		const fs = await withSession(line("user", "initial question"), "");
+		const { cursor } = await readTranscriptTail(fs, options);
+		expect(cursor).toEqual({ file: "2026-01-01_a.jsonl", line: 2, version: 2 });
+		await fs.writeFile(
+			sessionFile,
+			[
+				header(),
+				line("user", "initial question"),
+				line("user", "new question"),
+				"",
+			].join("\n"),
+		);
+		for (const prior of [cursor, { file: "2026-01-01_a.jsonl", line: 3 }]) {
+			expect(
+				(await readTranscriptTail(fs, { ...options, cursor: prior })).turns,
+			).toEqual([{ role: "user", text: "new question" }]);
+		}
+	});
+
+	it("leaves an unfinished final JSON record for the next pass", async () => {
+		const next = line("assistant", "completed response");
+		const fs = await withSession(line("user", "question"), next.slice(0, -2));
+		const { cursor } = await readTranscriptTail(fs, options);
+		await fs.writeFile(
+			sessionFile,
+			[header(), line("user", "question"), next, ""].join("\n"),
+		);
+		expect(
+			(await readTranscriptTail(fs, { ...options, cursor })).turns,
+		).toEqual([{ role: "assistant", text: "completed response" }]);
 	});
 
 	it("keeps the newest end when the tail is over budget", async () => {

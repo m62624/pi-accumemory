@@ -3,8 +3,8 @@
  *
  * The peer dependency is `*` — the extension runs against whatever pi the user
  * has installed — so every SDK surface it touches is a surface that can move
- * underneath it. Keeping those touches in two named files means an SDK upgrade
- * is reviewed in two places rather than hunted for across forty, and it is what
+ * underneath it. Keeping those touches in named adapters means an SDK upgrade
+ * is reviewed at those boundaries instead of across the entire extension. It
  * makes the SDK-watch workflow's pass/fail signal mean something.
  *
  * Everything else in `src/` is plain TypeScript over its own interfaces, which
@@ -21,7 +21,9 @@ const SRC = new URL("../src/", import.meta.url).pathname;
 const BOUNDARY = [
 	"index.ts",
 	"consolidation/pi-agent.ts",
+	"private-chat.ts",
 	"ui/memory-inspect.ts",
+	"ui/private-chat.ts",
 ];
 
 async function sourceFiles(dir: string, prefix = ""): Promise<string[]> {

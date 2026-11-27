@@ -7,7 +7,11 @@ const dir = "/agent/sessions/--home-m-app--";
 
 async function withLines(...lines: string[]) {
 	const fs = new FakeFs();
-	await fs.writeFile(`${dir}/2026-01-01_a.jsonl`, lines.join("\n"));
+	const header = JSON.stringify({ type: "session", cwd: "/home/m/app" });
+	await fs.writeFile(
+		`${dir}/2026-01-01_a.jsonl`,
+		[header, ...lines].join("\n"),
+	);
 	return fs;
 }
 
@@ -28,7 +32,9 @@ describe("readTranscriptTail edge cases", () => {
 	});
 
 	it("returns nothing for an empty transcript file", async () => {
-		expect((await read(await withLines(""))).turns).toEqual([]);
+		const fs = new FakeFs();
+		await fs.writeFile(`${dir}/2026-01-01_a.jsonl`, "");
+		expect(await read(fs)).toEqual({ turns: [] });
 	});
 
 	it("skips a JSON line that is not an object", async () => {
