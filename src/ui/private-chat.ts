@@ -7,9 +7,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
-export type PrivateChatMode = "btw" | "incognito";
-
-function plainText(text: string): string {
+export function plainPrivateText(text: string): string {
 	return stripVTControlCharacters(text)
 		.replace(/\r\n?/gu, "\n")
 		.replace(/\p{Cc}/gu, (char) =>
@@ -19,7 +17,6 @@ function plainText(text: string): string {
 
 export async function openPrivatePanel(
 	ui: ExtensionUIContext,
-	mode: PrivateChatMode,
 	lifetime: AbortController,
 	ask: (question: string) => Promise<string>,
 ): Promise<void> {
@@ -36,9 +33,7 @@ export async function openPrivatePanel(
 				},
 			});
 			const transcript: string[] = [];
-			const single = mode === "btw";
 			let busy = false;
-			let submitted = false;
 			let scroll = 0;
 			let pageSize = 1;
 			let status = "";
@@ -59,26 +54,25 @@ export async function openPrivatePanel(
 
 			editor.onSubmit = (input) => {
 				const question = input.trim();
-				if (question === "/longterm-incognito off" && !single) {
+				if (question === "/longterm-incognito off") {
 					close();
 					return;
 				}
-				if (signal.aborted || question === "" || (single && submitted)) return;
+				if (signal.aborted || question === "") return;
 				if (busy) {
 					editor.setText(input);
 					return;
 				}
 				busy = true;
-				submitted = true;
 				scroll = 0;
 				status = "Waiting for the model…";
-				transcript.push(`You: ${plainText(question)}`);
+				transcript.push(`You: ${plainPrivateText(question)}`);
 				tui.requestRender();
 
 				void ask(question)
 					.then((answer) => {
 						if (!signal.aborted) {
-							transcript.push(`Assistant: ${plainText(answer)}`);
+							transcript.push(`Assistant: ${plainPrivateText(answer)}`);
 							status = "";
 						}
 					})
@@ -105,7 +99,7 @@ export async function openPrivatePanel(
 						scroll += pageSize;
 					} else if (matchesKey(data, "pageDown")) {
 						scroll = Math.max(0, scroll - pageSize);
-					} else if (!single || !submitted) {
+					} else {
 						editor.handleInput(data);
 					}
 					if (!signal.aborted) tui.requestRender();
@@ -115,16 +109,14 @@ export async function openPrivatePanel(
 						...wrapTextWithAnsi(turn, width),
 						"",
 					]);
-					const input = single && submitted ? [] : editor.render(width);
-					const footer = single
-						? "Esc closes · PgUp/PgDn scroll"
-						: "Esc or /longterm-incognito off closes · PgUp/PgDn scroll";
-					const heading = single ? "Private question" : "Incognito chat";
+					const input = editor.render(width);
+					const footer =
+						"Esc or /longterm-incognito off closes · PgUp/PgDn scroll";
 					pageSize = Math.max(1, tui.terminal.rows - input.length - 5);
 					scroll = Math.min(scroll, Math.max(0, lines.length - pageSize));
 					const end = lines.length - scroll;
 					return [
-						theme.bold(truncateToWidth(heading, width)),
+						theme.bold(truncateToWidth("Incognito chat", width)),
 						...lines.slice(Math.max(0, end - pageSize), end),
 						...(status === "" ? [] : [truncateToWidth(status, width)]),
 						...input,
